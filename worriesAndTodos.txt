@@ -1,0 +1,40 @@
+Things to do and think about:
+
+how do joins work?:
+I was thinking a set structure that supports idempotent add(number), remove(number), checkEmpty.
+(could be implemented as a tree structure bitVector, so long as the numbers are sequential from zero)
+Then for a job, there is an associated set struct in dynamic PM. When a job forks, it adds a new number to the set, and tells the child job what it's number is.
+Then when you join, you just remove your number and check if the set is empty, if so, you are the last and you perform whatever the structure says the next capsule is.
+also the parent should be the first number in the set, so that it has an entry for joins.
+If you are not the last (!checkEmpty), then jmp scheduler. (this could maybe be a datarace? I am not sure exactly TODO.)
+
+I would need to check exactly what cilk does, but I think this should be enough to achieve the same behaviour. I recall that it requires children to finish before parents? That seems a little limiting, but also has some elegance. Then the next action of a given job that has children is the next capsule of the associated set.
+
+--------------------------------------------------------------------------
+what do I need to do to setup the PM for the first time?
+
+--------------------------------------------------------------------------
+how do unix process restarts work? How should procIDX inheritance work?
+
+--------------------------------------------------------------------------
+How does `goto` in C play with the stack? if I call a function that pushes some local stack vars and `goto` out of it, do they stick around? is there buildup? Can I do it manually?
+
+!!! looks like you can only `goto` inside the same function in C. How will this work with jumping back to the scheduler?
+
+### use labels and blocks all within the global scope to make fake functions or "continuations"
+
+-------------------------------------------------------------------------
+how do atomics work in memmapped files, and what is the read write timing? can two processes cam b->a and c->a in one spot at the same time. b->a succeeds, c->a fails, and both think they succeeded? should it be b->d, c->e? can I read a location I just cam'd? do I need to flush between? 
+
+-------------------------------------------------------------------------
+When CAMing deque entries, is
+A: a job entry small enough to be within a camchunk?
+B: do I need to swap pointers with the cam instead?
+
+if B, then how can I safely switch the type and increment the counter at the same time?
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+keep this link:
+
+https://gcc.gnu.org/onlinedocs/gcc-4.1.1/gcc/Atomic-Builtins.html
