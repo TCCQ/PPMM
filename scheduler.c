@@ -1,16 +1,12 @@
 #include "scheduler.h"
-#include "capsule.h" /* for commiting capsules (installing) */
+#include "capsule.h" /* for commiting capsules (installing), fork, and persistence */
 
 /* the deque that this process owns and can push to, is a ptr to PM */
-Job localDeque[STACK_SIZE];
+Job localDeque[STACK_SIZE]; //TODO I think is allocating, make a ptr
 int* bot;
 int* top;
 int localIdx; /* these should be initilized in process init*/
 
-/* TODO proc specific init, set localIdx and localDeque and others(?) */
-
-
-/* TODO write pushBottom, fork, scheduler, helpPopTop from paper */
 
 /*
  * TODO when does the new local Job get intialized and filled when a
@@ -19,8 +15,12 @@ int localIdx; /* these should be initilized in process init*/
  * to it? I know the Job being stolen is returned, but it also needs
  * to store it somehwere, as it is lost in the taken job entry (I
  * think?), but never filled in the pointed to local entry
+ *
+ * ANSWER the local job contains no info, all the info is the currently
+ * installed capsule. it is just a marker that it was doing work
  */
 
+/* this is a non-persistent leaf function call */
 void helpThief(int victimProcIdx) {
      int topCopy = getTop(victimProcIdx);
      Job foreignJobCopy = deques[victimProcIdx][topCopy];
@@ -37,141 +37,211 @@ void helpThief(int victimProcIdx) {
 }
 
 
+/* args and forward dec for readability */
+Capsule pushBCnt(void);
+struct pushBargs {
+     int bCopy;
+     int cCountCopy;
+     int nextCountCopy;
+     Capsule toPush;
+};
 /*
- * TODO should this take a function pointer? a capsule? a Job?
+ * this function is called by fork and maybe at the begining, and is a
+ * persistent call. It either returns to the scheduler at the end, or
+ * tail recurses on itself
  *
- * TODO this has the same issue as the others, contains a cap bound, need to pass a way to return (setjmp)
+ * takes the capsule to schedule in cap args
  */
-void pushBottom(/*type TBD */ ) {
-     int bottomCopy = *bot;
-     int currentCounterCopy = getCounter(&localDeque[bottomCopy]);
-     int nextCounterCopy = getCounter(&localDeque[bottomCopy+1]);
-     commitCurrent(); //cap bound
-     Job currentJobCopy = localDeque[bound];
-     if (currentJobCopy.counter == currentCounterCopy && isLocal(&currentCounterCopy)) {
-	  localDeque[bottomCopy+1] = makeLocal(localDeque[bottomCopy+1]);
-	  /* TODO the line above strikes me as unsafe and not idempotent, consider */
-	  *bot = bottomCopy+1;
-	  /*
-	   * TODO make a scheduled job entry with the arguemnt if not
-	   * already, then use as replacement below
-	   */
-	  CAMJob(&localDeque[bottomCopy], currentJobCopy, /* replacement */);
-     } else if (isEmpty(&localDeque[bottomCopy+1])) {
-	  pushBottom(/* input argument */); //TODO I guess this rereads bottomCopy? 
+Capsule pushBottom(void) {
+     struct pushBargs args;
+     getCapArgs(args); //reuse struct, only toPush is valid before this function returns
+     args.bCopy = *bot;
+     args.cCountCopy = getCounter(&localDeque[bottomCopy]);
+     args.nextCountCopy = getCounter(&localDeque[bottomCopy+1]);
+     Capsule continuation = mCapStruct(&pushBCnt,args);
+     persistentCall(continuation); //this is equivalent to commit;, cap boundary, next is pushBCnt 
+}
+
+/* continuation of pushBottom (after the commit) */
+Capsule pushBCnt (void) {
+     struct pushBargs args;
+     getCapArgs(args); //all members are valid
+     
+     Job currentJobCopy = localDeque[args.bCopy];
+     if (currentJobCopy.counter == args.cCountCopy && isLocal(&currentJobCopy)) { //TODO when would this fail?
+	  localDeque[args.bCopy+1] = makeLocal(localDeque[args.bCopy+1]);
+	  *bot = args.bCopy+1;
+
+	  Job replacement = makeScheduled(currentJobCopy);
+	  replacement.work = args.toPush; //the capsule that is getting scheduled
+	  CAMJob(&localDeque[bottomCopy], currentJobCopy, replacement);
+	  persistentReturn; //we are done, go back to scheduler
+     } else if (isEmpty(&localDeque[args.bCopy+1])) {
+	  persistentCall(mCapStruct(&pushBottom, args)); //this is eq to pushBottom(inputCapsule);
      }
 }
 
+
+/* forward decs for readability */
+Capsule stealCnt(void);
+Capsule graveRob(void);
+/* args passed to steal from popBottom (paper version findwork), and from steal to its cnt */
+struct stealArgs {
+     int victimProcIdx;
+     Job* outputLocation;
+     int countCopy; 
+
+     //from steal to stealCnt
+     int tCopy;
+     Job toStealCopy;
+};
+
 /*
- * regular function called from findWork
- *
- * Returns job (now local) with info on where work is and args, etc,
- * or empty job on failure
- *
- * TODO can this return a raw work pointer? I think I need to pass
- * arguments and a return value spot and a sync Set and whatnot as
- * well.
- *
- * TODO this doesn't work atm, becuase there is a commit inside, so
- * the return will be undefined as the stack could be lost. Should do
- * it with a set/longjmp I think
- *
- * TODO I am suspicious of this bot-1, maybe a bot+1? bot should point
- * to the first local entry if work is done (so this func should end
- * with bot pointing to replacement), but if this proc doesn't a local
- * work currently, it should point to "the first empty entry after the
- * jobs". So when I make a job local, bot should INCREASE, otherwise
- * the stack is upside down and top < bot.
+ * persistent call for finding a victim and trying to steal from them.
+ * continuation is steal. takes no arguments, passes stealArgs first
+ * half to steal via a continuation
  */
-Job popBottom(void) {
-     int botCopy = *bot;
-     Job jobCopy = localDeque[botCopy-1];
-     commitCurrent(); //capsule install
-     if (isScheduled(&jobCopy)) { //not yet being worked on by anyone
-	  
-	  /* construct a new local job from the unscheduled job */
-	  Job replacement = makeLocal(&jobCopy); //version that is claimed by this proc
-	  CAMJob(&(localDeque[botCopy-1], jobCopy, replacement));
-	  if (CompareJob(&(localDeque[botCopy-1]), &replacement)) {
-	       *bot = b-1; //update the global value (PM)
-	       return replacement; //TODO should this be a pointer? does it need to be?
-	  }
-     }
-     return makeEmpty(); //no jobs on this deque
+Capsule stealLoop(void) {
+     /*
+      * the stealing proceedure from findwork in the paper, looping and empty check are in steal
+      */
+     yield();
+     struct stealArgs args;
+     args.victimProcIdx = getVictim();
+     args.countCopy = getCounter(&localDeque[*bot]);
+     args.outputLoc = &(localDeque[*bot]);
+     persistentCall(mCapStruct(&steal, args)); //jump to stealing
 }
 
 /*
- * steal from another proc, called from findWork
+ * steal from another proc, called from findWork (or from popBottom's cnt in this version)
  *
- * should return a taken job that points to a local job on the
- * stealers deque if I am understanding this correctly, or empty if
- * there is nothing to steal
- *
- * TODO if this were to return a pointer, then I could return NULL on
- * error, making this slightly more readable, see above
- * 
- * TODO has same problem as popBottom, has capBound in it, so I can't
- * use a regular function here, need to "pass" return setjmp I think.
+ * jumps to stealLoop if someone steals it first or there is nothing to steal, or they are alive and and we can't grave rob. if the steal works, jumps to the stolen work.
  */
-Job steal(int victimProcIdx, Job* outputLoc, int counterCopy) {
-     helpThief(victimProcIdx);
-     int topCopy = getTop(victimProcIdx);
-     Job toStealCopy = deques[victimProcIdx][getTop(victimProcIdx)];
+Job steal(void) {
+     struct stealArgs args;
+     getCapArgs(args); //only first half is valid, fill the rest
+     
+     helpThief(args.victimProcIdx); //non-persistent leaf call
+     args.tCopy = getTop(args.victimProcIdx);
+     args.toStealCopy = deques[args.victimProcIdx][getTop(args.victimProcIdx)];
+     persistentCall(mCapStruct(&stealCnt, args)); //jump to cnt (cap boundary in paper)
+}
+
+/*
+ * continuation of steal. should either jump to stolen work via
+ * continuation or to the stealing loop on failure, or graverob if
+ * stealing from a dead proc
+ *
+ * TODO where is the local entry's start capsule filled? How to
+ * recover if fault after taken CAM but before installation
+ */
+Capsule stealCnt(void) {
+     struct stealArgs args;
+     getCapArgs(args); //all members are valid
+     int victimProcIdx = args.victimProcIdx;
+     Job* outputLoc = args.outputLocation;
+     int counterCopy = args.countCopy;
+     int topCopy = args.tCopy;
+     Job toStealCopy = args.toStealCopy;
+     //for readability, just copy them into local variables
+     
      Job updatedEntry;
-     commitCurrent(); // capsule boundary
+     Capsule stolenCap;
      switch (getId(&toStealCopy)) {
      case emptyId: //Nothing to steal
-	  return newEmpty(); 
+	  persistentCall(&stealLoop, NULL, 0); //jump steal loop 
      case takenId: //someone stole it first, help them
 	  helpThief(victimProcIdx);
-	  return newEmpty();
+	  persistentCall(&stealLoop, NULL, 0); //jump steal loop 
      case scheduledId: //something to steal
-	  updatedEntry = makeTaken(&toStealCopy, outputLoc);
-	  /* TODO somehow I need to add a local entry at outputLoc
-	   * that is a copy and mark, I think that happens in
-	   * helpThief */
+	  updatedEntry = makeTaken(&toStealCopy, outputLoc, couterCopy);
+	  stolenCap = toStealCopy.work;
 	  CAMJob(&(deques[victimProcIdx][topCopy]), toStealCopy, updatedEntry);
 	  helpThief(victimProcIdx);
+	  /* local entry at outputLoc is added in helpThief */
 	  if (!CompareJob(&(deques[victimProcIdx][topCopy]), &updatedEntry))
-	       return newEmpty(); //TODO see concerns above
-	  return updatedEntry;
+	       persistentCall(&stealLoop, NULL, 0); //jump steal loop, we failed to get this one
+	  perisistentCall(stolenCap); //we successfully stole it, jump to the work
      case localId: //could grave rob
-	  if (isLive(victimProcIdx) && CompareJob(&(deques[victimProcIdx][topCopy]), &toStealCopy)) {
-	       commitCurrent(); //cap bound. TODO see concerns above
-	       updatedEntry = makeTaken(&toStealCopy, outputLoc);
-	       deques[victimProcIdx][topCopy+1] = makeEmpty(&deques[victimProcIdx][topCopy+1]);
-	       /* TODO above is changing the PM stack and strikes me as unsafe, matches paper */
-	       CAMJob(&(deques[victimProcIdx][topCopy]), toStealCopy, updatedEntry);
-	       helpThief(victimProcIdx);
-	       if (!CompareJob(&(deques[victimProcIdx][topCopy]), &updatedEntry)) {
-		    return newEmpty(); //TODO see concerns above
-	       }
+	  if (!isLive(victimProcIdx) && CompareJob(&(deques[victimProcIdx][topCopy]), &toStealCopy)) {
+	       persistentCall(mCapStruct(&graveRob, args)); //jump to graveRob and pass args untouched, cap bound
 	  }
+	  persistentCall(&stealLoop, NULL, 0); //jump steal loop, stolen or alive
      }
 }
 
 /*
- * do local work or steal, called by scheduler
+ * continuation of stealCnt if trying to rob a dead proc. jumps to
+ * work or stealLoop. takes same args as stealCnt
  */
-void findWork(void) {
-     Job fromLocalDeque = popBottom();
-     if (!isEmpty(fromLocalDeque)){
-	  /* TODO do the work in fromLocalDeque, could have wrapper,
-	   * need to pass a return setjmp loc and whatnot. Not really
-	   * "pass" but place them in PM somewhere so it can get
-	   * back */
+Capsule graveRob(void) {
+     struct stealArgs args;
+     getCapArgs(args); //all members are valid
+     int victimProcIdx = args.victimProcIdx;
+     Job* outputLoc = args.outputLocation;
+     int counterCopy = args.countCopy; 
+     int topCopy = args.tCopy;
+     Job toStealCopy = args.toStealCopy;
+     //for readability, just copy them into local variables
+     
+     Job updatedEntry;
+     Capsule stolenCap;
+
+     stolenCap = toStealCopy.work;
+     updatedEntry = makeTaken(&toStealCopy, outputLoc, counterCopy);
+     deques[victimProcIdx][topCopy+1] = makeEmpty(&deques[victimProcIdx][topCopy+1]);
+     CAMJob(&(deques[victimProcIdx][topCopy]), toStealCopy, updatedEntry);
+     helpThief(victimProcIdx); //non-persistent leaf call, makes local entry
+     if (!CompareJob(&(deques[victimProcIdx][topCopy]), &updatedEntry)) {
+	  persistentCall(&stealLoop, NULL, 0); //jump steal loop, we failed to steal this one
      }
-     while (true) {/* TODO make a quiting mechanism */
-	  yield();
-	  int victim = getVictim();
-	  int counterCopy = getCounter(&localDeque[*bot]);
-	  Job stolen = steal(victim, &(localDeque[*bot]), counterCopy);
-	  if (!isEmpty(stolen)) {
-	       /* TODO see previous in this function */
+     persistentCall(stolenCap); //jump to work we stole
+}
+
+
+//arguments and forward dec for readability
+Capsule popBCnt(void); 
+struct popBargs {
+     int bCopy;
+     Job jCopy;
+};
+
+/* *
+ * this is a persitent call called from scheduler that takes no
+ * arguments and either jumps to work to be done if there is any, or
+ * to the stealing function through its continuation (split findwork
+ * from the paper in half)
+ */
+Capsule popBottom(void) {
+     struct popBargs args; 
+     args.bCopy = *bot;
+     args.jCopy = localDeque[botCopy-1]; 
+     persistentCall(mCapStruct(&popBCnt, args)); //this is the cap bound in the middle
+     
+}
+
+/*
+ * continuation of popBottom
+ *
+ * TODO consider job convience funcs taking by value, might be more
+ * readable
+ */
+Capsule popBCnt(void) {
+     struct popBargs args;
+     getCapArgs(args);
+     if (isScheduled(&(args.jCopy))) { //not yet being worked on by anyone
+	  /* construct a new local job from the scheduled job */
+	  Job replacement = makeLocal(&(args.jCopy)); //version that is claimed by this proc
+	  CAMJob(&(localDeque[args.bCopy-1], args.jCopy, replacement));
+	  if (CompareJob(&(localDeque[args.bCopy-1]), &replacement)) {
+	       *bot = args.bCopy-1; //update the global value (PM)
+	       persistentCall(replacement.work); //jump to work
 	  }
      }
-
+     persistentCall(makeCapsule(&stealLoop, NULL, 0)); //jump to steal loop if there is nothing to work on
 }
+
 
 /*
  * fork, push new job onto the stack, this should be visible to the
@@ -180,24 +250,25 @@ void findWork(void) {
  * TODO make a choice vis-a-vis what the user sees when talking about
  * this sort of control flow. maybe use funcPtr_t here?
  */
-void fork(/* type */) {
+void fork(Capsule cap) {
      /*
       * TODO this seems like the place to construct the job to be
       * pushed, then pass it to pushBottom
       */
-     pushBottom(/* constructed job I guess */)
+     struct pushBargs args;
+     args.toPush = cap;
+     persistentCall(mCapStruct(&pushBottom,args)); //jump to pushBottom
 }
 
 /*
- * main loop
+ * main loop, looks for, finds, and executes work via continuations. takes no arguments
  */
-void scheduler(void) {
+Capsule scheduler(void) {
      localDeque[*bot] = makeEmpty(localDeque[*bot]);
-     /* seems unsafe, see other TODOs */
-     Job workToDo = findWork();
+     persistentCall(makeCapsule(&popBottom, NULL, 0));
      /*
-      * TODO decide how to actually break the ice and get down to
-      * buisness, that happens here. This is also the function that
-      * the setjmp shenanigans happen in I think
+      * findwork from the paper is now run as a continuation of
+      * popBottom on failure, and the steal loop and stealing
+      * functions are decendents of that
       */
 }

@@ -38,3 +38,11 @@ if B, then how can I safely switch the type and increment the counter at the sam
 keep this link:
 
 https://gcc.gnu.org/onlinedocs/gcc-4.1.1/gcc/Atomic-Builtins.html
+
+-------------------------------------------------------------------------
+We need to be worried about whether or not the setjmp in the scheduler will persist across proc.s after soft fault. In addition.
+
+This could maybe be solved with, on reset, STARTING in the sched, do a setjmp, then jump directly into cap through rstPtr. could use the return val of setjmp to know that.
+
+Do I need to be worried about returnToSch calls in stolen Jobs?
+

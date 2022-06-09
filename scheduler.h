@@ -1,3 +1,4 @@
+#include "capsule.h" 
 /* Interally visible stuff for the scheduler code */
 
 /*
@@ -20,37 +21,15 @@ enum JOB_IDS{
      emptyId=0, localId, scheduledId, takenId
 };
 
-typedef struct {
-     id_t id;
-     counter_t counter;
-} emptyJob;
-
-typedef struct {
-     /* TODO fill in */
-     id_t id;
-     counter_t counter;
-} localJob;
-
-typedef struct {
-     /* TODO fill in */
-     id_t id;
-     counter_t counter;
-} scheduledJob;
-
-typedef struct {
-     /* TODO fill in */
-     id_t id;
-     counter_t counter;
-     Job* target;
-} takenJob;
-
 /* this is the type that the deque should be. */
-typedef union {
-     emptyJob;
-     localJob;
-     scheduledJob;
-     takenJob;
-} Job;
+typedef struct {
+     id_t id;
+     counter_t counter;
+     union {
+	  Job* target;
+	  Capsule work;
+     }
+}  Job;
 
 /* TODO add new/delete functions and other housekeeping */
 /*
@@ -69,7 +48,11 @@ Job newTaken(const Job*); //this isn't useful, use make version (TODO remove(?))
 Job makeEmpty(const Job*); //TODO remember to increment counter
 Job makeLocal(const Job*);
 Job makeScheduled(const Job*);
-Job makeTaken(const Job*, const Job*); //this copies the first arg and makes it point to the second
+Job makeTaken(const Job*, const Job*, int); //takes counter copy too
+/*
+ * this copies the first arg and makes it point to the second
+ * this also copies the counter value of the output location and stores in in the taken entry
+ */
 Job makeCopyJob(const Job*); //works for all types.
 
 //TODO should these take pointers or values?
@@ -89,9 +72,6 @@ boolean CompareJob(const Job*, const Job*);
 void CAMJob(Job*, const Job, const Job);
 
 
-/* control flow declarations */
-typedef void (*funcPtr_t)(void); /* 'funcPtr_t' is bound to to void-void function pointer type */
-
 /*
  * tell the kernel to schedule other stuff first.
  */
@@ -109,4 +89,5 @@ int getTop(int);
 int getBot(int);
 
 /* declaration of WS-deques as 2d-array */
+/* TODO this should be a PM pointer, currently this is being allocated here in EM */
 Job deques[NUM_PROC][STACK_SIZE];
