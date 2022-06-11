@@ -44,6 +44,7 @@ struct pushBargs {
      int cCountCopy;
      int nextCountCopy;
      Capsule toPush;
+     Capsule cnt;
 };
 /*
  * this function is called by fork and maybe at the begining, and is a
@@ -54,12 +55,11 @@ struct pushBargs {
  */
 Capsule pushBottom(void) {
      struct pushBargs args;
-     getCapArgs(args); //reuse struct, only toPush is valid before this function returns
+     getCapArgs(args); //reuse struct, only toPush and cnt are valid before this function returns
      args.bCopy = *bot;
      args.cCountCopy = getCounter(&localDeque[bottomCopy]);
      args.nextCountCopy = getCounter(&localDeque[bottomCopy+1]);
-     Capsule continuation = mCapStruct(&pushBCnt,args);
-     persistentCall(continuation); //this is equivalent to commit;, cap boundary, next is pushBCnt 
+     persistentCall(mCapStruct(&pushBCnt,args)); //this is equivalent to commit;, cap boundary, next is pushBCnt 
 }
 
 /* continuation of pushBottom (after the commit) */
@@ -68,19 +68,41 @@ Capsule pushBCnt (void) {
      getCapArgs(args); //all members are valid
      
      Job currentJobCopy = localDeque[args.bCopy];
-     if (currentJobCopy.counter == args.cCountCopy && isLocal(&currentJobCopy)) { //TODO when would this fail?
+     if (currentJobCopy.counter == args.cCountCopy && isLocal(&currentJobCopy)) {
+	  /* I guess this makes the replacement happen once? not sure why this is needed */
 	  localDeque[args.bCopy+1] = makeLocal(localDeque[args.bCopy+1]);
 	  *bot = args.bCopy+1;
 
 	  Job replacement = makeScheduled(currentJobCopy);
 	  replacement.work = args.toPush; //the capsule that is getting scheduled
 	  CAMJob(&localDeque[bottomCopy], currentJobCopy, replacement);
-	  persistentReturn; //we are done, go back to scheduler
-     } else if (isEmpty(&localDeque[args.bCopy+1])) {
+	  persistentCall(args.cnt); //we are done, take follow the other side of the fork call, or left/right branch
+     } else if (isEmpty(&localDeque[args.bCopy+1])) { 
 	  persistentCall(mCapStruct(&pushBottom, args)); //this is eq to pushBottom(inputCapsule);
+	  //TODO when is this reached?
      }
 }
 
+
+struct forkArgs {
+     Capsule left;
+     Capsule right;
+}
+/*
+ * fork, push new job onto the stack and start another. It is
+ * persistent call that takes two capsules as arguments.
+ *
+ * TODO make this visible to the end user. need an external sched.h
+ */
+Capsule fork(void) {
+     struct forkArgs incoming;
+     getCapArgs(incoming);
+     
+     struct pushBargs args;
+     args.toPush = incoming.right;
+     args.cnt = incoming.left;
+     persistentCall(mCapStruct(&pushBottom,args)); //jump to pushBottom
+}
 
 /* forward decs for readability */
 Capsule stealCnt(void);
@@ -240,24 +262,6 @@ Capsule popBCnt(void) {
 	  }
      }
      persistentCall(makeCapsule(&stealLoop, NULL, 0)); //jump to steal loop if there is nothing to work on
-}
-
-
-/*
- * fork, push new job onto the stack, this should be visible to the
- * user I think,
- *
- * TODO make a choice vis-a-vis what the user sees when talking about
- * this sort of control flow. maybe use funcPtr_t here?
- */
-void fork(Capsule cap) {
-     /*
-      * TODO this seems like the place to construct the job to be
-      * pushed, then pass it to pushBottom
-      */
-     struct pushBargs args;
-     args.toPush = cap;
-     persistentCall(mCapStruct(&pushBottom,args)); //jump to pushBottom
 }
 
 /*
