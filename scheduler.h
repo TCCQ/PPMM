@@ -21,14 +21,15 @@ enum JOB_IDS{
      emptyId=0, localId, scheduledId, takenId
 };
 
-/* this is the type that the deque should be. */
+/*
+ * this is the type that the deque should be. Not all the fields will
+ * have defined values at all times.q
+ */
 typedef struct {
      id_t id;
      counter_t counter;
-     union {
-	  Job* target;
-	  Capsule work;
-     }
+     Job* target;
+     Capsule work;
 }  Job;
 
 /* TODO add new/delete functions and other housekeeping */

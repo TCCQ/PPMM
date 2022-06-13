@@ -36,3 +36,9 @@ https://gcc.gnu.org/onlinedocs/gcc-4.1.1/gcc/Atomic-Builtins.html
 Capsules need to be small enough to be written atomically, or the currentlyInstalled/reset pointer needs to be indirect so it can be atomically swapped. Capsules never need to be CAM'd, so there is not a hard size requirement iirc.
 
 JOBs need to be CAM-able. using gcc atomic compare and swap stuff means they should be 1,2,4,8 bytes, but they include a capsule struct in them currently, which contains an ARGUMENT_SIZE byte buffer in them. We could have dynamically allocated capsules, which doesn't seem feasible. we could have dynamic arguments, but then to garbage collect each struct would need a pointer to its args and then another to the last cap.s that it needs to clean. This is unreasable are pointers are usually 3-4 bytes long.
+
+------------------------------------------------------------------------
+Fix the issue with taken jobs not writing the capsule into the new local job entry
+
+------------------------------------------------------------------------
+consider declaring all of the Capsule func(void) stuff as funcPtr_t func for readability, and to make it clear that they don't take argument in the normal way. Mostly stylistic

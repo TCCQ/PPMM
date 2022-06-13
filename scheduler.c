@@ -1,5 +1,7 @@
 #include "scheduler.h"
 #include "capsule.h" /* for commiting capsules (installing), fork, and persistence */
+#include "set.h" /* used in fork */
+#include "flow.h" //fork declaration
 
 /* the deque that this process owns and can push to, is a ptr to PM */
 Job localDeque[STACK_SIZE]; //TODO I think is allocating, make a ptr
@@ -33,6 +35,7 @@ void helpThief(int victimProcIdx) {
 	   * the counter of the entry at the time of the steal
 	   */
 	  CAM(&top, topCopy, topCopy+1);
+	  foreignJobCopy.target.work = foreignJobCopy.work; //copy the initial capsule to the new target
      }
 }
 
@@ -87,10 +90,13 @@ Capsule pushBCnt (void) {
 struct forkArgs {
      Capsule left;
      Capsule right;
+     Capsule afterJoin;
 }
 /*
  * fork, push new job onto the stack and start another. It is
- * persistent call that takes two capsules as arguments.
+ * persistent call that takes three capsules as arguments, the left
+ * and right branches of the fork, and the capsule to jump to when the
+ * two children have joined.
  *
  * TODO make this visible to the end user. need an external sched.h
  */
@@ -98,9 +104,25 @@ Capsule fork(void) {
      struct forkArgs incoming;
      getCapArgs(incoming);
      
+
+     //this mem is freed after the join call
+     Set* joinSet = (Set*)(PMalloc(sizeof(Set)));
+     *joinSet = SetInitialize(args.afterJoin);
+
+     /*
+      * fill the internal info for the left/right capsules and setup the fork history
+      */
      struct pushBargs args;
      args.toPush = incoming.right;
+     args.toPush.forkPath = (currentlyInstalled->forkPath << 1) | 1; //mark right fork
+     args.toPush.joinLocs[currentlyInstalled->joinHead+1] = joinSet;
+     args.toPush.joinHead = currentlyInstalled->joinHead+1;
+
      args.cnt = incoming.left;
+     args.cnt.forkPath = (currentlyInstalled->forkPath << 1) & (~1); //mark left fork
+     args.cnt.joinLocs[currentlyInstalled->joinHead+1] = joinSet;
+     args.cnt.joinHead = currentlyInstalled->joinHead+1;
+
      persistentCall(mCapStruct(&pushBottom,args)); //jump to pushBottom
 }
 

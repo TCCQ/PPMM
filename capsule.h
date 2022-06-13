@@ -2,11 +2,14 @@
  * TODO include the scheduler function from scheduler.c, requires
  * additional non-user header for scheduling
  */
+#include "set.h"
 /*
  * declarations for capsule code
  */
 
 #define ARGUMENT_SIZE 256
+#define JOIN_SIZE 64
+//needs to match the length of forkpath in bits
 typedef unsigned char BYTE;
 /* TODO need to ensure that ^ is exactly 1 byte */
 
@@ -14,10 +17,13 @@ typedef struct {
      funcPtr_t rstPtr; //where the work is for this capsule
      BYTE arguments[ARGUMENT_SIZE]; //data needed for ^
      int argSize; //optional, how much of ^ is used
+     unsigned long long forkPath;
      /*
-      * rstPtr will construct and return continuation, so it is not
-      * explicitly stored here
+      * each bit is the left/right status of the fork that lead to
+      * this capsule. See fork and join in scheduler.c
       */
+     Set* joinLocs[JOIN_SIZE]; //size should match bits in forkPath (TODO circular structs?)
+     int joinHead; //which location is the one to join
 } Capsule;
 
 /* control flow declarations */
@@ -32,6 +38,18 @@ typedef Capsule (*funcPtr_t)(void);
  * code, consider splitting this file into internal and external
  */
 
+Capsule* currentlyInstalled;
+/*
+ * this is PM pointer, and needs to be init somewhere TODO
+ *
+ * TODO decide the visibility of this internally and externally.
+ * Consider splitting headers
+ *
+ * TODO this needs to be atomically swapped, not with other threads
+ * but it can't fault in the middle of the write. could be a ptr**,
+ * but then we need dynamic allocation. I think an alternating pair
+ * system should work
+ */
 
 void retrieveCapsuleArguments(void*, int);
 /*
