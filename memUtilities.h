@@ -45,9 +45,6 @@ void PMfree(void*);
 
 /* flushes the changes to persistent memory out to ensure that other
  * processes can see them
-
- * (TODO WORRY ABOUT ABA AND A->B A->C AT THE SAME TIME BY DIFFERENT
- * PROCESSES WHO BOTH THINK THEY SUCCEEDED)
  */
 void PMflush(void);
 

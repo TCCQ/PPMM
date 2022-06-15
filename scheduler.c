@@ -4,22 +4,29 @@
 #include "flow.h" //fork declaration
 
 /* the deque that this process owns and can push to, is a ptr to PM */
-Job localDeque[STACK_SIZE]; //TODO I think is allocating, make a ptr
-int* bot;
-int* top;
-int localIdx; /* these should be initilized in process init*/
-
+Job* localDeque; 
+int* bot; 
+int* top; 
+int localIdx; 
+/*
+ * localDeque: pointer to STACK_SIZE deque. TODO init somewhere
+ * 
+ * bot/top: PM pointers to top and bottom of the stack. there is an
+ * array declared in scheduler.h to check other procs
+ *
+ * localIdx: quick reference to who this process is. TODO should be
+ * moved so that it can be init in the init file
+ */
 
 /*
- * TODO when does the new local Job get intialized and filled when a
+ * when does the new local Job get intialized and filled when a
  * steal happens? is it in helpTheif or in steal? when the local thing
  * gets set to local? when the original gets set to theif w/ a pointer
  * to it? I know the Job being stolen is returned, but it also needs
  * to store it somehwere, as it is lost in the taken job entry (I
  * think?), but never filled in the pointed to local entry
  *
- * ANSWER the local job contains no info, all the info is the currently
- * installed capsule. it is just a marker that it was doing work
+ * ANSWER it gets written here. 
  */
 
 /* this is a non-persistent leaf function call */
@@ -60,8 +67,8 @@ Capsule pushBottom(void) {
      struct pushBargs args;
      getCapArgs(args); //reuse struct, only toPush and cnt are valid before this function returns
      args.bCopy = *bot;
-     args.cCountCopy = getCounter(&localDeque[bottomCopy]);
-     args.nextCountCopy = getCounter(&localDeque[bottomCopy+1]);
+     args.cCountCopy = getCounter(localDeque[bottomCopy]);
+     args.nextCountCopy = getCounter(localDeque[bottomCopy+1]);
      persistentCall(mCapStruct(&pushBCnt,args)); //this is equivalent to commit;, cap boundary, next is pushBCnt 
 }
 
@@ -71,7 +78,7 @@ Capsule pushBCnt (void) {
      getCapArgs(args); //all members are valid
      
      Job currentJobCopy = localDeque[args.bCopy];
-     if (currentJobCopy.counter == args.cCountCopy && isLocal(&currentJobCopy)) {
+     if (currentJobCopy.counter == args.cCountCopy && isLocal(currentJobCopy)) {
 	  /* I guess this makes the replacement happen once? not sure why this is needed */
 	  localDeque[args.bCopy+1] = makeLocal(localDeque[args.bCopy+1]);
 	  *bot = args.bCopy+1;
@@ -80,7 +87,7 @@ Capsule pushBCnt (void) {
 	  replacement.work = args.toPush; //the capsule that is getting scheduled
 	  CAMJob(&localDeque[bottomCopy], currentJobCopy, replacement);
 	  persistentCall(args.cnt); //we are done, take follow the other side of the fork call, or left/right branch
-     } else if (isEmpty(&localDeque[args.bCopy+1])) { 
+     } else if (isEmpty(localDeque[args.bCopy+1])) { 
 	  persistentCall(mCapStruct(&pushBottom, args)); //this is eq to pushBottom(inputCapsule);
 	  //TODO when is this reached?
      }
@@ -98,7 +105,7 @@ struct forkArgs {
  * and right branches of the fork, and the capsule to jump to when the
  * two children have joined.
  *
- * TODO make this visible to the end user. need an external sched.h
+ * declared for user code in flow.h
  */
 Capsule fork(void) {
      struct forkArgs incoming;
@@ -114,14 +121,14 @@ Capsule fork(void) {
       */
      struct pushBargs args;
      args.toPush = incoming.right;
-     args.toPush.forkPath = (currentlyInstalled->forkPath << 1) | 1; //mark right fork
-     args.toPush.joinLocs[currentlyInstalled->joinHead+1] = joinSet;
-     args.toPush.joinHead = currentlyInstalled->joinHead+1;
+     args.toPush.forkPath = ((*currentlyInstalled)->forkPath << 1) | 1; //mark right fork
+     args.toPush.joinLocs[(*currentlyInstalled)->joinHead+1] = joinSet;
+     args.toPush.joinHead = (*currentlyInstalled)->joinHead+1;
 
      args.cnt = incoming.left;
-     args.cnt.forkPath = (currentlyInstalled->forkPath << 1) & (~1); //mark left fork
-     args.cnt.joinLocs[currentlyInstalled->joinHead+1] = joinSet;
-     args.cnt.joinHead = currentlyInstalled->joinHead+1;
+     args.cnt.forkPath = ((*currentlyInstalled)->forkPath << 1) & (~1); //mark left fork
+     args.cnt.joinLocs[(*currentlyInstalled)->joinHead+1] = joinSet;
+     args.cnt.joinHead = (*currentlyInstalled)->joinHead+1;
 
      persistentCall(mCapStruct(&pushBottom,args)); //jump to pushBottom
 }
@@ -152,7 +159,7 @@ Capsule stealLoop(void) {
      yield();
      struct stealArgs args;
      args.victimProcIdx = getVictim();
-     args.countCopy = getCounter(&localDeque[*bot]);
+     args.countCopy = getCounter(localDeque[*bot]);
      args.outputLoc = &(localDeque[*bot]);
      persistentCall(mCapStruct(&steal, args)); //jump to stealing
 }
@@ -204,14 +211,14 @@ Capsule stealCnt(void) {
 	  CAMJob(&(deques[victimProcIdx][topCopy]), toStealCopy, updatedEntry);
 	  helpThief(victimProcIdx);
 	  /* local entry at outputLoc is added in helpThief */
-	  if (!CompareJob(&(deques[victimProcIdx][topCopy]), &updatedEntry))
-	       persistentCall(&stealLoop, NULL, 0); //jump steal loop, we failed to get this one
+	  if (!CompareJob(deques[victimProcIdx][topCopy], updatedEntry))
+	       persistentCall(makeCapsule(&stealLoop, NULL, 0)); //jump steal loop, we failed to get this one
 	  perisistentCall(stolenCap); //we successfully stole it, jump to the work
      case localId: //could grave rob
-	  if (!isLive(victimProcIdx) && CompareJob(&(deques[victimProcIdx][topCopy]), &toStealCopy)) {
+	  if (!isLive(victimProcIdx) && CompareJob(deques[victimProcIdx][topCopy], toStealCopy)) {
 	       persistentCall(mCapStruct(&graveRob, args)); //jump to graveRob and pass args untouched, cap bound
 	  }
-	  persistentCall(&stealLoop, NULL, 0); //jump steal loop, stolen or alive
+	  persistentCall(makeCapsule(&stealLoop, NULL, 0)); //jump steal loop, stolen or alive
      }
 }
 
@@ -233,12 +240,12 @@ Capsule graveRob(void) {
      Capsule stolenCap;
 
      stolenCap = toStealCopy.work;
-     updatedEntry = makeTaken(&toStealCopy, outputLoc, counterCopy);
-     deques[victimProcIdx][topCopy+1] = makeEmpty(&deques[victimProcIdx][topCopy+1]);
+     updatedEntry = makeTaken(toStealCopy, outputLoc, counterCopy);
+     deques[victimProcIdx][topCopy+1] = makeEmpty(deques[victimProcIdx][topCopy+1]);
      CAMJob(&(deques[victimProcIdx][topCopy]), toStealCopy, updatedEntry);
      helpThief(victimProcIdx); //non-persistent leaf call, makes local entry
-     if (!CompareJob(&(deques[victimProcIdx][topCopy]), &updatedEntry)) {
-	  persistentCall(&stealLoop, NULL, 0); //jump steal loop, we failed to steal this one
+     if (!CompareJob(deques[victimProcIdx][topCopy], updatedEntry)) {
+	  persistentCall(makeCapsule(&stealLoop, NULL, 0)); //jump steal loop, we failed to steal this one
      }
      persistentCall(stolenCap); //jump to work we stole
 }
@@ -274,11 +281,11 @@ Capsule popBottom(void) {
 Capsule popBCnt(void) {
      struct popBargs args;
      getCapArgs(args);
-     if (isScheduled(&(args.jCopy))) { //not yet being worked on by anyone
+     if (isScheduled(args.jCopy)) { //not yet being worked on by anyone
 	  /* construct a new local job from the scheduled job */
-	  Job replacement = makeLocal(&(args.jCopy)); //version that is claimed by this proc
+	  Job replacement = makeLocal(args.jCopy); //version that is claimed by this proc
 	  CAMJob(&(localDeque[args.bCopy-1], args.jCopy, replacement));
-	  if (CompareJob(&(localDeque[args.bCopy-1]), &replacement)) {
+	  if (CompareJob(localDeque[args.bCopy-1], replacement)) {
 	       *bot = args.bCopy-1; //update the global value (PM)
 	       persistentCall(replacement.work); //jump to work
 	  }

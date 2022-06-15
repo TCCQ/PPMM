@@ -2,10 +2,8 @@
 #include "assert.h"
 
 /*
- * This is the file implimenting the capsule.h stuff. TODO move the interal-only declarations here
+ * This is the file implimenting the capsule.h stuff. 
  */
-
-
 
 void retrieveCapsuleArguments(void* toFill, int size) {
      BYTE* inputByte = (BYTE*)(currentlyInstalled->arguments);
@@ -15,7 +13,6 @@ void retrieveCapsuleArguments(void* toFill, int size) {
      }
 }
 
-/* TODO make sure this is safe with NULL, 0 for no args */
 Capsule makeCapsule(funcPtr_t instructions, void* args, int size) {
      assert(argSize < ARGUMENT_SIZE);
      Capsule output;
@@ -40,17 +37,43 @@ Capsule makeCapsule(funcPtr_t instructions, void* args, int size) {
      return output;
 }
 
+
+
 /*
  * do the running of capsules and facilitate the continuation
  * capsules. this is the true internal main loop. start by running
  * scheduler capsule, which should get the proper inner loop going.
+ 
+ * if a fault happens before the *currentlyInstalled assignment, then
+ * the last capsule is run again. if it happens after, then on restart
+ * it will read from currentlyInstalled, and start in the installed
+ * capsule.
+ *
+ * to start the loop for the first time, then write the very first
+ * capsule to installedSwap[0] or [1] and point *currentlyInstalled to
+ * it, then start this loop. The first capsule (after all pre-fault
+ * setup is done) should fork with the starting job and an job that
+ * returns immediately. you might be able to use the scheduler instead
+ * of a job that returns immediately.
+ * 
+ * TODO this needs to be declared somewhere internally visible so the
+ * main loop can start. maybe in some seperate instal initialization
+ * header?
  */
-void trampolineCapsule(Capsule initial) {
-     // TODO install the initial capsule
+Capsule* installedSwap; //PM pointer to 2 entry capsule array. TODO init
+void trampolineCapsule(void) {
      Capsule next;
-     // TODO make quiting mechinism
-     while (true) { 
+     while (true) { // TODO make quiting mechinism
 	  next = (*currentlyInstalled.rstPtr)(); //do the work and save the continuation
-	  /* TODO install the capsule by switching currentlyInstalled
+
+	  if (*currentlyInstalled == &(installedSwap[0])) {
+	       //the first is installed
+	       installedSwap[1] = next;
+	       *currentlyInstalled = &(installedSwap[1]); //TODO make atomic
+	  } else {
+	       //the second is installed
+	       installedSwap[0] = next;
+	       *currentlyInstalled = &(installedSwap[0]); //TODO make atomic
+	  }
      }
 }

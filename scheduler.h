@@ -32,45 +32,32 @@ typedef struct {
      Capsule work;
 }  Job;
 
-/* TODO add new/delete functions and other housekeeping */
-/*
- * These are to be used when creating a entry for the first time,
- * after that the make___ version should be used everyehre I think
- * 
- * not all of these will be used I think, but they are here for now
- */
-Job newEmpty(void);
-Job newEmptyWithCounter(int);
-Job newLocal(void);
-Job newScheduled(void);
-Job newTaken(const Job*); //this isn't useful, use make version (TODO remove(?))
-
 /* these make a copy of the passed job and change the job type */
-Job makeEmpty(const Job*); //TODO remember to increment counter
-Job makeLocal(const Job*);
-Job makeScheduled(const Job*);
-Job makeTaken(const Job*, const Job*, int); //takes counter copy too
+Job makeEmpty(Job); //TODO remember to increment counter
+Job makeLocal(Job);
+Job makeScheduled(Job);
+Job makeTaken(Job, const Job*, int); //takes counter copy too
 /*
  * this copies the first arg and makes it point to the second
  * this also copies the counter value of the output location and stores in in the taken entry
  */
-Job makeCopyJob(const Job*); //works for all types.
+Job makeCopyJob(Job); //works for all types.
 
 //TODO should these take pointers or values?
 /* getters */
-int getCounter(const Job*);
-int getId(const Job*);
+int getCounter(Job);
+int getId(Job);
 /* dumb checks */
-boolean isEmpty(const Job*);
-boolean isLocal(const Job*);
-boolean isScheduled(const Job*);
-boolean isTaken(const Job*);
+boolean isEmpty(Job);
+boolean isLocal(Job);
+boolean isScheduled(Job);
+boolean isTaken(Job);
 /* Comparison, == but for jobs, 1(true) for equal, 0(false) to != */
-boolean CompareJob(const Job*, const Job*); 
+boolean CompareJob(Job, Job); 
 
 
 /* CAM specifically for jobs, (target, expected, replaced) */
-void CAMJob(Job*, const Job, const Job);
+void CAMJob(Job*, Job, Job);
 
 
 /*
@@ -91,4 +78,7 @@ int getBot(int);
 
 /* declaration of WS-deques as 2d-array */
 /* TODO this should be a PM pointer, currently this is being allocated here in EM */
-Job deques[NUM_PROC][STACK_SIZE];
+Job** deques; //is PM array of size: [NUM_PROC][STACK_SIZE]. TODO init
+
+int* tops; //PM array of top indicies size NUM_PROC
+int* bots; //PM array of top indicies size NUM_PROC

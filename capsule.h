@@ -1,7 +1,6 @@
-/*
- * TODO include the scheduler function from scheduler.c, requires
- * additional non-user header for scheduling
- */
+#ifndef persistentReturn
+#include "scheduler.h"
+#endif
 #include "set.h"
 /*
  * declarations for capsule code
@@ -22,7 +21,7 @@ typedef struct {
       * each bit is the left/right status of the fork that lead to
       * this capsule. See fork and join in scheduler.c
       */
-     Set* joinLocs[JOIN_SIZE]; //size should match bits in forkPath (TODO circular structs?)
+     Set* joinLocs[JOIN_SIZE]; //size should match bits in forkPath 
      int joinHead; //which location is the one to join
 } Capsule;
 
@@ -33,22 +32,19 @@ typedef Capsule (*funcPtr_t)(void);
  * and returns a continuation capsule. This return type CANNOT be a
  * pointer, because it needs to outlive the function and I don't want
  * to mess with Capsule allocation
- *
- * TODO this needs to be visible from user
- * code, consider splitting this file into internal and external
  */
 
-Capsule* currentlyInstalled;
+Capsule** currentlyInstalled;
 /*
  * this is PM pointer, and needs to be init somewhere TODO
  *
- * TODO decide the visibility of this internally and externally.
- * Consider splitting headers
- *
- * TODO this needs to be atomically swapped, not with other threads
- * but it can't fault in the middle of the write. could be a ptr**,
- * but then we need dynamic allocation. I think an alternating pair
- * system should work
+ * this is a pointer to PM, and from there another PM pointer to the
+ * actually installed capsule. Do not write directly, instead just use
+ * the trampoline setup with returned continuations. To start the
+ * cycle, read the comment above trampolineCapsule in capsule.c. this
+ * location can be safely read by the process that owns it, or by
+ * another if the owner is dead
+ * 
  */
 
 void retrieveCapsuleArguments(void*, int);
@@ -60,17 +56,15 @@ void retrieveCapsuleArguments(void*, int);
 #define getCapArgs(s) retrieveCapsuleArguments(&s, sizeof(s))
 /* see mCapStruct below */
 
-void installCapsule(Capsule);
+
 /*
- * installs the given capsule. This should NOT be a pointer, because
- * the upcoming capsule from the function needs to be not function
- * local, see above. This needs to be visible to other files, but not
- * to the user. TODO consider splitting this header into user and
- * not-user visible
+ * TODO add initializers / constructors / destructor for Capsule
+ *
+ * we have constructors now, and I don't think I need a destructor.
+ * the only thing to be suspicious of is freeing the Sets, but that
+ * should be handled by the joins, assuming that frees can be done
+ * from any process
  */
-
-
-/* TODO add initializers / constructors / destructor for Capsule */
 
 //pass NULL, 0 for no args
 Capsule makeCapsule(funcPtr_t, void*, int);
@@ -89,12 +83,16 @@ Capsule makeCapsule(funcPtr_t, void*, int);
  * exits, it will return the capsule to run after the call
  */
 
+
 #define persistentReturn return(&scheduler)
 /*
  * take us back to the scheduler if this thread is done
  *
  * TODO this is function pointer to the scheduler func, make sure it
- * lines up properly. See top of this file
+ * lines up properly. this is the only thing in this file that
+ * requires the scheduler.h inclusion. This can be moved (possibly
+ * with persistentCall) to another file to prevent circular includes,
+ * the conditional include may already solve that
  */
 
 

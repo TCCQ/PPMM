@@ -24,6 +24,12 @@ struct clearArgs {
  * Persistent call. Takes the continuation of the join as a sole
  * argument. Cleans the allocated memory for this set object
  * associated with the join
+ *
+ * TODO this is good but not quite safe, as if both arrive at the same
+ * time, then one succeeds but faults repeatedly, staying in tryClear
+ * while the other succeeds and comes here, then s is freed and the
+ * faulting one tries to read it after it gets freed. Not sure how to
+ * fix that
  */
 Capsule cleanup(void) {
      Capsule cnt;
