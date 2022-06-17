@@ -32,8 +32,10 @@ typedef struct {
      Capsule work;
 }  Job;
 
+
+Job newEmptyWithCounter(int); //make an empty entry with the counter set
 /* these make a copy of the passed job and change the job type */
-Job makeEmpty(Job); //TODO remember to increment counter
+Job makeEmpty(Job); 
 Job makeLocal(Job);
 Job makeScheduled(Job);
 Job makeTaken(Job, const Job*, int); //takes counter copy too
@@ -43,7 +45,6 @@ Job makeTaken(Job, const Job*, int); //takes counter copy too
  */
 Job makeCopyJob(Job); //works for all types.
 
-//TODO should these take pointers or values?
 /* getters */
 int getCounter(Job);
 int getId(Job);
@@ -77,7 +78,6 @@ int getTop(int);
 int getBot(int);
 
 /* declaration of WS-deques as 2d-array */
-/* TODO this should be a PM pointer, currently this is being allocated here in EM */
 Job** deques; //is PM array of size: [NUM_PROC][STACK_SIZE]. TODO init
 
 int* tops; //PM array of top indicies size NUM_PROC

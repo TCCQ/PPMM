@@ -184,8 +184,7 @@ Job steal(void) {
  * continuation or to the stealing loop on failure, or graverob if
  * stealing from a dead proc
  *
- * TODO where is the local entry's start capsule filled? How to
- * recover if fault after taken CAM but before installation
+ * local entry for taken is filled in helpThief
  */
 Capsule stealCnt(void) {
      struct stealArgs args;
@@ -274,9 +273,6 @@ Capsule popBottom(void) {
 
 /*
  * continuation of popBottom
- *
- * TODO consider job convience funcs taking by value, might be more
- * readable
  */
 Capsule popBCnt(void) {
      struct popBargs args;

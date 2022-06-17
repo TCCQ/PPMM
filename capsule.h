@@ -57,15 +57,6 @@ void retrieveCapsuleArguments(void*, int);
 /* see mCapStruct below */
 
 
-/*
- * TODO add initializers / constructors / destructor for Capsule
- *
- * we have constructors now, and I don't think I need a destructor.
- * the only thing to be suspicious of is freeing the Sets, but that
- * should be handled by the joins, assuming that frees can be done
- * from any process
- */
-
 //pass NULL, 0 for no args
 Capsule makeCapsule(funcPtr_t, void*, int);
 

@@ -1,4 +1,4 @@
-/* TODO add an inclusion for size_t  */
+#include <sys/types.h> //for size_t
 
 
 
@@ -60,32 +60,14 @@ int getProcIDX(void);
 
 /* Persistent Memory Actions */
 
-/* needs to be supported bu system compare and exchange instructions 
- * should be large enough to hold a void* pointer.
- * Or maybe write several versions for different sizes?
+/*
+ * compare and modify, should only be used on persistent memory
  *
- * TODO think about this
- *
- * Seems like the gcc __sync_val_compare_and_swap supports int scalars
- * of 1,2,4,8 bytes, so long long works (8bytes) if we raw data cast
- * the structure and the lengths are matching. I should assert
- * somewhere about that.
- *
- * TODO write a version that does the swap interally
- *
- * Seems like the above is deprecated in favor of
- * (https://gcc.gnu.org/onlinedocs/gcc-12.1.0/gcc/_005f_005fatomic-Builtins.html#g_t_005f_005fatomic-Builtins),
- * It says you can pass other data and types and it will figure it
- * out.
- *
- * TODO so that says I should just write a Cam that takes jobs and
- * maybe one that takes restart pointers
- */ 
-typedef unsigned long long camChunk;
-
-/* compare and modify, should only be used on persistent memory */
-//void CAM(void*, void*, camChunk);
-/* TODO I think I should make custom versions for jobs and whatnot, but for scalar types just use a macro */
+ * takes a pointer and two values. its is the user's resposibility
+ * that the data type is 1,2,4,8 bytes long, otherwise atomiticity is
+ * not guarenteed (does actually return a value, but it shouldn't be
+ * used, its a CAM but secretly a CAS)
+ */
 #ifndef CAM
-#define CAM(loc, old, new) (/* TODO impliment w/ __sync_whatever, see worriesAndTodos.txt */)
+#define CAM(loc, old, new) (__atomic_compare_exchange_n(loc, &(old), new, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
 #endif

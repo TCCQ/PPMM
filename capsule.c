@@ -31,7 +31,7 @@ Capsule makeCapsule(funcPtr_t instructions, void* args, int size) {
       * TODO is there a better place to do this?
       */
      for (int i = 0; i < JOIN_SIZE; i++) {
-	  output.joinLocs[i] = currentlyInstalled->joinLocs[i];
+	  output.joinLocs[i] = (*currentlyInstalled)->joinLocs[i];
      }
      output.joinHead = currentlyInstalled->joinHead;
      return output;
@@ -57,8 +57,9 @@ Capsule makeCapsule(funcPtr_t instructions, void* args, int size) {
  * of a job that returns immediately.
  * 
  * TODO this needs to be declared somewhere internally visible so the
- * main loop can start. maybe in some seperate instal initialization
- * header?
+ * main loop can start. maybe in some seperate initialization header?
+ *
+ * TODO ensure the atomics writes work properly here
  */
 Capsule* installedSwap; //PM pointer to 2 entry capsule array. TODO init
 void trampolineCapsule(void) {
@@ -69,11 +70,13 @@ void trampolineCapsule(void) {
 	  if (*currentlyInstalled == &(installedSwap[0])) {
 	       //the first is installed
 	       installedSwap[1] = next;
-	       *currentlyInstalled = &(installedSwap[1]); //TODO make atomic
+	       //*currentlyInstalled = &(installedSwap[1]); 
+	       __atomic_store_n(*currentlyInstalled, &(installedSwap[1]), __ATOMIC_SEQ_CST); 
 	  } else {
 	       //the second is installed
 	       installedSwap[0] = next;
-	       *currentlyInstalled = &(installedSwap[0]); //TODO make atomic
+	       //*currentlyInstalled = &(installedSwap[0]); 
+	       __atomic_store_n(*currentlyInstalled, &(installedSwap[0]), __ATOMIC_SEQ_CST); 
 	  }
      }
 }

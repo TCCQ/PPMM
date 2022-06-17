@@ -25,3 +25,8 @@ consider declaring all of the Capsule func(void) stuff as funcPtr_t func for rea
 
 ------------------------------------------------------------------------
 do the intial setup, all the PM setup, procIdx mapping and setting all the pointer and whatnot, see top of scheduler.c and bottom of scheduler.h
+
+------------------------------------------------------------------------
+PM pointers should probably be declared as volatile, could make a def/ for that for readability
+#define PM volatile
+PM int* top; or whatever

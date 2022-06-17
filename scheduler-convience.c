@@ -1,11 +1,22 @@
 #include "scheduler.h"
 #include "capsule.h"
+#include <sched.h> //for yield
+#include <assert.h>
+#include <stdlib.h> //for rand
 
 /*
  * impliementations of the stuff declared in scheduler.h for use in scheduler.c
  *
- * TODO some of these aren't used, possibly prune
+ * TODO do I use all of these?, possibly prune
  */
+
+//new empty with a set counter
+Job newEmtpyWithCounter(int c) {
+     Job out;
+     out.id = emptyId;
+     out.counter = c;
+     return out;
+}
 
 /*
  * these make a copy of the passed job and change the job type. They also increment the counter
@@ -32,7 +43,6 @@ Job makeTaken(Job in, const Job* targetJob, int counterCopy) {
      return in;
 }
 
-//TODO should these take pointers or values?
 /* getters */
 int getCounter(Job in) {
      return in.counter;
@@ -58,6 +68,8 @@ boolean isTaken(Job in) {
 /*
  * we need a comparison for capsules, I am making it local because
  * that is not something the user should be doing
+ *
+ * TODO should I be doing that? where do I use CompareJob?
  */
 boolean CompareCapsule(Capsule a, Capsule b) {
      if (a.rstPtr != b.rstPtr || a.joinHead != b.joinHead || a.forkPath != b.forkPath) {
@@ -112,15 +124,22 @@ void CAMJob(Job*, Job, Job);
 
 
 /*
- * tell the kernel to schedule other stuff first. TODO impliment
+ * tell the kernel to schedule other stuff first.
+ *
+ * we are going to try sched.h, which works on the thread level, but
+ * this is (to the OS) a single thread process, so it should work
  */
-void yield(void); 
+void yield(void) {
+     int ret = sched_yield();
+     assert(ret == 0);
+}
 
 /*
  * Pick a target to steal from, returns the procIdx of the victim
  */
 int getVictim(void) {
-     //TODO pick a random method that makes sense, could just use stdlib.h rand(), need to set seed somewhere
+     return rand() % NUM_PROC;
+     //TODO do srand(time(NULL)); somewhere in init
 }
 
 /*
