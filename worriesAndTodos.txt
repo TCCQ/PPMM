@@ -2,6 +2,14 @@ Things to do and think about:
 
 what do I need to do to setup the PM for the first time?
 
+we need to be careful, shm does not allow for mapping to a fixed address.
+
+could solve with a PMptr type, is an offset from the base pointer
+
+then have getAddr(PMptr) that returns a void*. so read/writes to the
+data use that, and storing the pointer themselves should just store
+PMptr type
+
 --------------------------------------------------------------------------
 how do unix process restarts work? How should procIDX inheritance work?
 
@@ -30,3 +38,20 @@ do the intial setup, all the PM setup, procIdx mapping and setting all the point
 PM pointers should probably be declared as volatile, could make a def/ for that for readability
 #define PM volatile
 PM int* top; or whatever
+
+------------------------------------------------------------------------
+rewrite the scheduling code to use PMem and persistent stack properly. avoid Capsule types in arguments, and Jobs, as they include a Capsule.
+
+TODO Consider if I need to go deeper and have a real Pstack, not just an array, so I can store bigger arguments.
+
+------------------------------------------------------------------------
+how do all these setup things work? should I declare them all extern?
+
+figure out later
+
+------------------------------------------------------------------------
+how do I pass arguments through the scheduler?
+
+currently args are through the stack, but that is not possible. Should
+I add an argument field to a job? then copy it to the stack on the
+start? that is what makes the most sense to me

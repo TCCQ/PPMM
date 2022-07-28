@@ -16,6 +16,29 @@ void* EMalloc(size_t);
  */
 void EMfree(void*);
 
+/* Persistent Memory */
+
+/*
+ * Persistent memory is represented as a `PMem` type. This type acts
+ * as a pointer into persistent memory via the helper function PMAddr,
+ * which returns a void* to the data represented by the passed PMem
+ * object. Whenever persistent memory is referenced from user code,
+ * users should store the pointer as a PMem type, and perform
+ * opperations on it via the return value of PMAddr. This void*
+ * pointer is safe to store, but is valid only within the capsule that
+ * is was returned from PMAddr. If the data needs to be accessed in
+ * multiple sequential capsules, the pointer MUST be required via
+ * PMAddr. For safety and readability, simply using PMAddr every time
+ * the code accesses the data may be the best option. The user manage
+ * the data inside a single PMem reference as they see fit, so long as
+ * they do not exceed the size of the referenced data in the reference
+ * itself. 
+ */
+
+typedef struct {unsigned int offset; unsigned int size} PMem;
+
+/* see above */
+void* PMAddr(PMem);
 
 /* Dynamic Persistent Memory Mangagement */
 
@@ -31,7 +54,7 @@ void EMfree(void*);
  * (TODO ENSURE THAT I CHECK PROCESSIDX INSIDE, OR SOMEHOW ENSURE NO
  * MEMLEAKS OTHERWISE)
  */
-void* PMalloc(size_t);
+PMem PMalloc(size_t);
 
 /* Releases the dynamic chunk of persistent memory at the passed
  * address given by a prior call to PMalloc. Can be safely called on a
@@ -41,7 +64,7 @@ void* PMalloc(size_t);
  * (TODO ENSURE THAT PROCESSES THAT ARE NOT THE ALLOCATING PROCESS CAN
  * SAFELY FREE)
  */
-void PMfree(void*);
+void PMfree(PMem);
 
 /* flushes the changes to persistent memory out to ensure that other
  * processes can see them

@@ -6,8 +6,6 @@
 
 /*
  * impliementations of the stuff declared in scheduler.h for use in scheduler.c
- *
- * TODO do I use all of these?, possibly prune
  */
 
 //new empty with a set counter
@@ -75,13 +73,7 @@ boolean CompareCapsule(Capsule a, Capsule b) {
      if (a.rstPtr != b.rstPtr || a.joinHead != b.joinHead || a.forkPath != b.forkPath) {
 	  return false
      }
-     //argSize is option, not checked here
-     for (int i = 0; i < ARGUMENT_SIZE; i++) {
-	  if (a.arguments[i] != b.arguments[i]) return false;
-     }
-     for (int i = 0; i < JOIN_SIZE; i++) {
-	  if (a.joinLocs[i] != b.joinLocs[i]) return false;
-     }
+     //TODO check pStack state, this sort of comparison is inadvisable
      return true;
 }
 
@@ -118,7 +110,7 @@ boolean CompareJob(Job a, Job b) {
  * CODE), and local jobs are only reached from empty states. So I
  * think only the owner of a deque will ever be writing capsules, so
  * it is safe to write the capsule first and then cam the id and
- * counter. use a substruct to do both at once. CONFIRM WITH CHARLIE
+ * counter. use a substruct to do both at once. TODO CONFIRM WITH CHARLIE
  */
 void CAMJob(Job*, Job, Job);
 

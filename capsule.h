@@ -2,11 +2,11 @@
 #include "scheduler.h"
 #endif
 #include "set.h"
+#include "memUtilities.h"
 /*
  * declarations for capsule code
  */
 
-#define ARGUMENT_SIZE 256
 #define JOIN_SIZE 64
 //needs to match the length of forkpath in bits
 typedef unsigned char BYTE;
@@ -14,16 +14,44 @@ typedef unsigned char BYTE;
 
 typedef struct {
      funcPtr_t rstPtr; //where the work is for this capsule
-     BYTE arguments[ARGUMENT_SIZE]; //data needed for ^
-     int argSize; //optional, how much of ^ is used
-     unsigned long long forkPath;
+     
      /*
       * each bit is the left/right status of the fork that lead to
       * this capsule. See fork and join in scheduler.c
+      *
+      * TODO all forking material here should be moved to the Job
+      * struct, as this information only changes on scheduler
+      * interaction, aka between Jobs
       */
-     Set* joinLocs[JOIN_SIZE]; //size should match bits in forkPath 
+     unsigned long long forkPath; //TODO I don't remember what I called this
+     /*
+      * This is an array of PM pointers to sets.
+      * size should match bits in forkPath
+      */
+     PMem joinLocs[JOIN_SIZE];
      int joinHead; //which location is the one to join
+
+     /* 
+      * The clean pointer for the pStack this capsule is working on, and
+      * the clean pointers for the cnt and callee holders. read pStack.h
+      *
+      * These are PMems, deref once to see data
+      */
+     PMem pStackHeadClean;
+     PMem cntHolderClean;
+     PMem callHolderClean;
+
+     /* 
+      * TODO add a field for a soft whoAmI, set at the
+      * scheduler->usercode edge. and add a getter (this could be
+      * getProcIDX in memUtilities, that header is motivatioonally
+      * prior to this, consider moving that to here)
+      */
+     int whoAmI; 
 } Capsule;
+
+Capsule quickGetInstalled(void);
+int getProcIDX(void); //soft whoAmI, allows for hardfault steals
 
 /* control flow declarations */
 typedef Capsule (*funcPtr_t)(void); 
@@ -34,57 +62,21 @@ typedef Capsule (*funcPtr_t)(void);
  * to mess with Capsule allocation
  */
 
-Capsule** currentlyInstalled;
-/*
- * this is PM pointer, and needs to be init somewhere TODO
+/* 
+ * this is the area that holds (indirectly) the current capsule. It is
+ * a PMem pointer to an array of elements. There is one element per
+ * process. each element is another PMem pointer to the currently
+ * installed capsule. The trampoline code in capsule.c atomically
+ * swaps the installed capsule between bits of usercode or overhead
+ * code.
  *
- * this is a pointer to PM, and from there another PM pointer to the
- * actually installed capsule. Do not write directly, instead just use
- * the trampoline setup with returned continuations. To start the
- * cycle, read the comment above trampolineCapsule in capsule.c. this
- * location can be safely read by the process that owns it, or by
- * another if the owner is dead
- * 
+ * So you should deref, pick based on your hard whoAmI, and then deref
+ * again to access the capsule
  */
-
-void retrieveCapsuleArguments(void*, int);
-/*
- * do the reverse of the argument part of makeCap. Called from user
- * code. Reads from the currently installed capsule
- */
-
-#define getCapArgs(s) retrieveCapsuleArguments(&s, sizeof(s))
-/* see mCapStruct below */
-
-
-//pass NULL, 0 for no args
-Capsule makeCapsule(funcPtr_t, void*, int);
-
-/* faster version for arguments that are a single struct (recommended) */
-#define mCapStruct(f,s) makeCapsule(f,s,sizeof(s))
-
+extern PMem currentlyInstalled;
 
 /*
- * one of the two definitions below should be at the end of every
- * persistent user function and all of the internal persistent calls
+ * construct a new capsule with associated overhead. the output of this
+ * should be what is returned to the trampoline code
  */
-#define persistentCall(cap) return(cap)
-/*
- * this is how one does a persistent call. Cap will be run and when it
- * exits, it will return the capsule to run after the call
- */
-
-
-#define persistentReturn return(&scheduler)
-/*
- * take us back to the scheduler if this thread is done
- *
- * TODO this is function pointer to the scheduler func, make sure it
- * lines up properly. this is the only thing in this file that
- * requires the scheduler.h inclusion. This can be moved (possibly
- * with persistentCall) to another file to prevent circular includes,
- * the conditional include may already solve that
- */
-
-
-
+Capsule makeCapsule(funcPtr_t);

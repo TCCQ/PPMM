@@ -1,6 +1,7 @@
 #include "set.h"
 #include "capsule.h"
 #include "flow.h" //join declaration
+#include "memUtilities.h"
 /*
  * the forkPath of the outbound capsule is managed internally and
  * should not be specified by the user
@@ -15,7 +16,7 @@ Set SetiInitialize(Capsule cnt) {
 }
 
 struct clearArgs {
-     Set* s;
+     PMem s; //PMptr single set
      BYTE oldData
      Capsule self;
 };
@@ -34,7 +35,7 @@ struct clearArgs {
 Capsule cleanup(void) {
      Capsule cnt;
      getCapArgs(&cnt);
-     Set* toFree = cnt.joinLocs[cnt.joinHead--];
+     PMem toFree = cnt.joinLocs[cnt.joinHead--];
      PMfree(toFree); //matches alloc in fork call
      cnt.forkpath >>= 1;
      persistentCall(cnt);
@@ -58,13 +59,13 @@ Capsule tryClear(void) {
      replacement &= ~(mask); //clear bit
      replacement &= ~((~(args.self.forkpath & 1)) << 7);
      /* set the high bit to which side did the editing */
-     CAM(&args.s->data, args.oldData, replacement);
+     CAM(&(( (Set*) PMAddr(args.s) )->data), args.oldData, replacement);
      //only left OR right can succeed at 1 time, and the high bit will tell which
 
      
-     if (args.s->data & 0x03 == 0) {
+     if (((Set*) PMAddr(args.s))->data & 0x03 == 0) {
 	  /* the data is clear */
-	  if (args.s->data >> 7 == args.self.forkpath & 1) {
+	  if (((Set*) PMAddr(args.s))->data >> 7 == ((Set*) PMAddr(args.s))elf.forkpath & 1) {
 	       /* this thread was the final clear */
 	       persistentCall(mCapStruct(&cleanup, cnt)); 
 	  } else {
@@ -79,14 +80,14 @@ Capsule tryClear(void) {
 	   * the data is not clear. Either I am here first or my CAM
 	   * failed
 	   */
-	  if (args.s->data == replacement) {
+	  if (((Set*) PMAddr(args.s))->data == replacement) {
 	       /*
 		* my cam worked, I am just the first. I am free to leave
 		*/
 	       persistentReturn; 
 	  } else {
 	       /* my cam failed, the other guy got here first */
-	       args.oldData = args.s->data; //load new data
+	       args.oldData = ((Set*) PMAddr(args.s))->data; //load new data
 	       persistentCall(mCapStruct(&tryClear, args)); //try again
 	  }
      }
@@ -99,6 +100,6 @@ Capsule join(void) {
      struct clearArgs args;
      args.s = currentlyInstalled->joinLocs[currentlyInstalled->joinHead];
      args.self = *currentlyInstalled;
-     args.oldData = args.s->data;
+     args.oldData = ((Set*) PMAddr(args.s))->data;
      persistentCall(mCapStruct(&tryClear, args));
 }

@@ -1,4 +1,5 @@
 #include "capsule.h" 
+#include "memUtilities.h"
 /* Interally visible stuff for the scheduler code */
 
 /*
@@ -10,9 +11,11 @@
 /* compile time constants */
 #define NUM_PROC 4
 #define STACK_SIZE 256
+#define JOB_ARG_SIZE 256
 
 /* readability */
 typedef unsigned char boolean;
+typedef unsigned char byte;
 
 /* job struct declartions */
 typedef unsigned char id_t;
@@ -23,13 +26,15 @@ enum JOB_IDS{
 
 /*
  * this is the type that the deque should be. Not all the fields will
- * have defined values at all times.q
+ * have defined values at all times.
  */
 typedef struct {
      id_t id;
      counter_t counter;
      Job* target;
      Capsule work;
+     byte args[JOB_ARG_SIZE];
+     int argSize;
 }  Job;
 
 
@@ -78,7 +83,15 @@ int getTop(int);
 int getBot(int);
 
 /* declaration of WS-deques as 2d-array */
-Job** deques; //is PM array of size: [NUM_PROC][STACK_SIZE]. TODO init
+
+/*
+ * These are pointers to persistent memory, but they are only visible
+ * to the process that initializes them (TODO confirm), so they can be
+ * regular pointers, initializeed at process start.
+ */
+
+/* this is a PM pointer to an array of PMem objects that are Jobs */
+PMem* deques; //is PM array of size: [NUM_PROC][STACK_SIZE]. TODO init
 
 int* tops; //PM array of top indicies size NUM_PROC
 int* bots; //PM array of top indicies size NUM_PROC

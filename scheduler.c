@@ -2,6 +2,9 @@
 #include "capsule.h" /* for commiting capsules (installing), fork, and persistence */
 #include "set.h" /* used in fork */
 #include "flow.h" //fork declaration
+#include "memUtilities.h" //PMem
+#include "pStack.h" //persistent flow operations
+#include "pStack-internal.h"
 
 /* the deque that this process owns and can push to, is a ptr to PM */
 Job* localDeque; 
@@ -9,6 +12,11 @@ int* bot;
 int* top; 
 int localIdx; 
 /*
+ * These should not be confused with the declarations at the bottom of
+ * scheduler.h. Those are the sets of stacks, tops, and bottoms of
+ * everyone. These are said things for this process. bot here is
+ * equivalent to `bots[localIdx]` for convience
+ * 
  * localDeque: pointer to STACK_SIZE deque. TODO init somewhere
  * 
  * bot/top: PM pointers to top and bottom of the stack. there is an
@@ -16,6 +24,20 @@ int localIdx;
  *
  * localIdx: quick reference to who this process is. TODO should be
  * moved so that it can be init in the init file
+ *
+ * these are pointers to PM that are visible only to this process. as
+ * such, they can be safely converted to regular pointers and
+ * initialized at the start of the process.
+ *
+ * TODO I think the above is true, but I need to make PMem objects out
+ * of derived references to these pointers sometimes so how should I
+ * do that? I can't make a PMem constructor that takes a void* and
+ * calculates relative to the root ptr, because ptr subtraction is not
+ * defined in general. I think these have to be PMem references.
+ * ponder
+ *
+ * consider making these definitions for lookups with soft whoAmIs, so
+ * when scheduling code is stolen it works properly
  */
 
 /*
@@ -47,46 +69,68 @@ void helpThief(int victimProcIdx) {
 }
 
 
-/* args and forward dec for readability */
+/* 
+ * ephemeral leaf call, empties the pStack and then copies the
+ * starting arguments into the stack. This needs to be called from
+ * some place that can make progress without the pStack (basically
+ * just the last capsule before the usercode capsule jump)
+ */
+void jobStartStack(const Job* from) {
+     pStackDirty = myStack; //reset based on a soft whoAmI
+     for (int i = 0; i < from->argSize; i++) {
+	  *(pStackDirty++) = from->args[i];
+     }
+}
+
+/* forward dec for readability */
 Capsule pushBCnt(void);
-struct pushBargs {
-     int bCopy;
-     int cCountCopy;
-     int nextCountCopy;
-     Capsule toPush;
-     Capsule cnt;
-};
+Capsule forkCnt(void);
 /*
  * this function is called by fork and maybe at the begining, and is a
  * persistent call. It either returns to the scheduler at the end, or
  * tail recurses on itself
  *
- * takes the capsule to schedule in cap args
+ * now takes two Jobs, the left and right. It pushes one of them and
+ * executes the other. They need to be jobs to include the starting
+ * args. The executed Job does have a local entry, and this is
+ * currently not filled with any data, just a marker that a thief
+ * should check if this proc is alive and then check it's installed
+ * cap. That can probably be changed if nessiary
  */
 Capsule pushBottom(void) {
-     struct pushBargs args;
-     getCapArgs(args); //reuse struct, only toPush and cnt are valid before this function returns
-     args.bCopy = *bot;
-     args.cCountCopy = getCounter(localDeque[bottomCopy]);
-     args.nextCountCopy = getCounter(localDeque[bottomCopy+1]);
-     persistentCall(mCapStruct(&pushBCnt,args)); //this is equivalent to commit;, cap boundary, next is pushBCnt 
+     //again implicitly pass args by not popping them, then add several copied counters on top
+     int bottomCopy = *bot;
+     pPushCntArg(bottomCopy); //where the bottom is now
+     pPushCntArg(getCounter(localDeque[bottomCopy])); //counter of current bottom entry
+     pPushCntArg(getCounter(localDeque[bottomCopy+1])); //counter of one below that
+     pcnt(&pushBCnt); //cap bound
 }
 
 /* continuation of pushBottom (after the commit) */
 Capsule pushBCnt (void) {
-     struct pushBargs args;
-     getCapArgs(args); //all members are valid
+     int bottomCopy, currentCounterCopy, nextCounterCopy;
+     Job left, right;
+     pPopArg(nextCounterCopy);
+     pPopArg(currentCounterCopy);
+     pPopArg(bottomCopy);
+     pPopArg(right);
+     pPopArg(left);
      
-     Job currentJobCopy = localDeque[args.bCopy];
-     if (currentJobCopy.counter == args.cCountCopy && isLocal(currentJobCopy)) {
+     Job currentJobCopy = localDeque[bottomCopy];
+     if (currentJobCopy.counter == currentCounterCopy && isLocal(currentJobCopy)) {
 	  /* I guess this makes the replacement happen once? not sure why this is needed */
-	  localDeque[args.bCopy+1] = makeLocal(localDeque[args.bCopy+1]);
-	  *bot = args.bCopy+1;
+	  localDeque[bottomCopy+1] = makeLocal(localDeque[bottomCopy+1]);
+	  *bot = bottomCopy+1;
+	  //now we have two local entries
+	  
+	  Job replacement = makeScheduled(left);
+	  replacement.counter = currentJobCopy.counter+1; 
+	  CAMJob(&localDeque[bottomCopy], currentJobCopy, replacement); //one half is done
 
-	  Job replacement = makeScheduled(currentJobCopy);
-	  replacement.work = args.toPush; //the capsule that is getting scheduled
-	  CAMJob(&localDeque[bottomCopy], currentJobCopy, replacement);
-	  persistentCall(args.cnt); //we are done, take follow the other side of the fork call, or left/right branch
+	  jobStartStack(&right); //copy right args to clean stack
+	  
+          pCntManual(right.work); //use the manual override version of pcnt to allow manual forkpath editing
+
      } else if (isEmpty(localDeque[args.bCopy+1])) { 
 	  persistentCall(mCapStruct(&pushBottom, args)); //this is eq to pushBottom(inputCapsule);
 	  //TODO when is this reached?
@@ -94,89 +138,179 @@ Capsule pushBCnt (void) {
 }
 
 
-struct forkArgs {
-     Capsule left;
-     Capsule right;
-     Capsule afterJoin;
-}
 /*
  * fork, push new job onto the stack and start another. It is
- * persistent call that takes three capsules as arguments, the left
- * and right branches of the fork, and the capsule to jump to when the
+ * persistent call that takes three jobs as arguments, the left
+ * and right branches of the fork, and the work to jump to when the
  * two children have joined.
  *
  * declared for user code in flow.h
+ *
+ * It takes the following, (this is the order that they are
+ * popped in):
+ *
+ * the size of the left branch's starting arguments
+ * said args
+ * the left starting funcPtr
+ *
+ * the size of the right's args
+ * args
+ * right funcPtr
+ *
+ * size of join args
+ * args
+ * join funcPtr
+ *
+ * then this code will pop and divide these into Jobs *not* capsules,
+ * even the join one. The set should contain a job and not a capsule.
+ * (TODO) That way when the join is complete it pushes a new job
+ * rather than continuting without returning to the scheduler. This
+ * way we can avoid packaging args within capsules, but store args
+ * outside of the pStack (in the job in this case)
  */
 Capsule fork(void) {
-     struct forkArgs incoming;
-     getCapArgs(incoming);
-     
+     //don't pop args here, let them pass through to forkCnt after the PMalloc call
+     pPushCalleeArg(sizeof(Set));
+     pcall(&PMalloc, &forkCnt);
+     /*
+      * the callee just gets the size, the cnt doesn't get anything
+      * explicit, but implicitly gets everything that was pushed but
+      * not popped as and argument to this
+      */
+}
 
-     //this mem is freed after the join call
-     Set* joinSet = (Set*)(PMalloc(sizeof(Set)));
-     *joinSet = SetInitialize(args.afterJoin);
+//after pCall in fork, takes fork args + pMem pointer
+Capsule forkCnt(void) {
+     int leftSize, rightSize, joinSize;
+     byte leftArgs[JOB_ARG_SIZE];
+     byte rightArgs[JOB_ARG_SIZE];
+     byte joinArgs[JOB_ARG_SIZE];
+     funcPtr_t leftPtr, rightPtr, joinPtr;
+     byte* output;
+     PMem joinSet; //TODO fix type of PMalloc
+
+     pPopArg(joinSet); //PMalloc return value
+     
+     pPopArg(leftSize);
+     output = leftArgs+leftSize;
+     for (int i = 0; i < leftSize; i++) {
+	  pPopArg(*(--output)); //copy into local args from stack, backwards
+     }
+     pPopArg(leftPtr); //done with left
+
+     pPopArg(rightSize);
+     output = rightArgs+rightSize;
+     for (int i = 0; i < rightSize; i++) {
+	  pPopArg(*(--output)); //copy into local args from stack, backwards
+     }
+     pPopArg(rightPtr); //done with right
+
+     pPopArg(joinSize);
+     byte* output = joinArgs+joinSize;
+     for (int i = 0; i < joinSize; i++) {
+	  pPopArg(*(--output)); //copy into local args from stack, backwards
+     }
+     pPopArg(joinPtr); //done with join
+
+     //the arguments are all popped and filled now
 
      /*
       * fill the internal info for the left/right capsules and setup the fork history
       */
-     struct pushBargs args;
-     args.toPush = incoming.right;
-     args.toPush.forkPath = ((*currentlyInstalled)->forkPath << 1) | 1; //mark right fork
-     args.toPush.joinLocs[(*currentlyInstalled)->joinHead+1] = joinSet;
-     args.toPush.joinHead = (*currentlyInstalled)->joinHead+1;
+     Capsule leftCap = makeCapsule(leftPtr);
+     Capsule rightCap = makeCapsule(rightPtr);
+     Capsule joinCap = makeCapsule(joinPtr);
 
-     args.cnt = incoming.left;
-     args.cnt.forkPath = ((*currentlyInstalled)->forkPath << 1) & (~1); //mark left fork
-     args.cnt.joinLocs[(*currentlyInstalled)->joinHead+1] = joinSet;
-     args.cnt.joinHead = (*currentlyInstalled)->joinHead+1;
+     
+     leftCap.forkPath = (quickGetInstalled.forkPath << 1) & (~1); //mark left fork
+     leftCap.joinLocs[quickGetInstalled.joinHead+1] = joinSet;
+     leftCap.joinHead = quickGetInstalled.joinHead+1;
 
-     persistentCall(mCapStruct(&pushBottom,args)); //jump to pushBottom
+     rightCap.forkPath = (quickGetInstalled.forkPath << 1) | 1; //mark right fork
+     rightCap.joinLocs[quickGetInstalled.joinHead+1] = joinSet;
+     rightCap.joinHead = quickGetInstalled.joinHead+1;
+
+     //joinCap doesn't need edits, because it's path is the same is this cap's, so makeCap should be fine
+
+     Job leftJob = newEmptyWithCounter(0); //counters will be set later
+     leftJob.work = leftCap;
+     for (int i = 0; i < leftSize; i++) {
+	  leftJob.args[i] = leftArgs[i]; //copy into job struct
+     }
+     leftJob.argSize = leftSize; //finished with left Job struct
+     
+     Job rightJob = newEmptyWithCounter(0); //counters will be set later
+     rightJob.work = rightCap;
+     for (int i = 0; i < rightSize; i++) {
+	  rightJob.args[i] = rightArgs[i]; //copy into job struct
+     }
+     rightJob.argSize = rightSize; //finished with right Job struct
+     
+     Job joinJob = newEmptyWithCounter(0); //counters will be set later
+     joinJob.work = joinCap;
+     for (int i = 0; i < joinSize; i++) {
+	  joinJob.args[i] = joinArgs[i]; //copy into job struct
+     }
+     joinJob.argSize = joinSize; //finished with join Job struct
+
+     //now the Jobs are all set
+     
+     *( (Set*) PMAddr(joinSet) ) = SetInitialize(joinJob); 
+     
+     pPushCntArg(leftJob);
+     pPushCntArg(rightJob);
+     pcnt(&pushBottom); //jump to pushBottom
 }
 
 /* forward decs for readability */
 Capsule stealCnt(void);
 Capsule graveRob(void);
-/* args passed to steal from popBottom (paper version findwork), and from steal to its cnt */
-struct stealArgs {
-     int victimProcIdx;
-     Job* outputLocation;
-     int countCopy; 
-
-     //from steal to stealCnt
-     int tCopy;
-     Job toStealCopy;
-};
 
 /*
- * persistent call for finding a victim and trying to steal from them.
- * continuation is steal. takes no arguments, passes stealArgs first
- * half to steal via a continuation
+ * persistent cnt for finding a victim and trying to steal from them.
+ * continuation is steal. takes no arguments, passes an procIdx, a
+ * counter copy, and a PMem output location to steal
  */
 Capsule stealLoop(void) {
      /*
       * the stealing proceedure from findwork in the paper, looping and empty check are in steal
       */
      yield();
-     struct stealArgs args;
-     args.victimProcIdx = getVictim();
-     args.countCopy = getCounter(localDeque[*bot]);
-     args.outputLoc = &(localDeque[*bot]);
-     persistentCall(mCapStruct(&steal, args)); //jump to stealing
+
+     pPushCntArg(getVictim);
+     pPushCntArg(getCounter(localDeque[*bot]));
+     pPushCntArg(/* TODO this should be a PMem for the output location, see top of file*/);
+     pcnt(&steal);
 }
 
 /*
- * steal from another proc, called from findWork (or from popBottom's cnt in this version)
+ * steal from another proc, called from findWork in the paper, here from popBottom's cnt 
  *
- * jumps to stealLoop if someone steals it first or there is nothing to steal, or they are alive and and we can't grave rob. if the steal works, jumps to the stolen work.
+ * jumps to stealLoop if someone steals it first or there is nothing
+ * to steal, or they are alive and and we can't grave rob. if the
+ * steal works, jumps to the stolen work.
  */
 Job steal(void) {
      struct stealArgs args;
      getCapArgs(args); //only first half is valid, fill the rest
+     int victimIdx;
+     int counterCopy;
+     PMem outputLoc;
+     pPopArg(outputLoc);
+     pPopArg(counterCopy);
+     pPopArg(victimIdx);
      
-     helpThief(args.victimProcIdx); //non-persistent leaf call
-     args.tCopy = getTop(args.victimProcIdx);
-     args.toStealCopy = deques[args.victimProcIdx][getTop(args.victimProcIdx)];
-     persistentCall(mCapStruct(&stealCnt, args)); //jump to cnt (cap boundary in paper)
+     helpThief(victimIdx); //non-persistent leaf call
+
+     pPushCntArg(victimIdx); //who is the victim
+     pPushCntArg(counterCopy); //counter of what we are stealing
+     pPushCntArg(outputLoc); //PMem location to copy to
+     pPushCntArg(getTop(victimIdx)); //where is the top of the victim's stack
+     
+     PMem jobArray = ((PMem*) PMAddr(deques))[victimIdx];
+     pPushCntArg( ((Job*) PMAddr(jobArray))[getTop(victimIdx)]); //copy of job being stolen
+
+     pcnt(&stealcnt); //cap bound
 }
 
 /*
@@ -187,106 +321,138 @@ Job steal(void) {
  * local entry for taken is filled in helpThief
  */
 Capsule stealCnt(void) {
-     struct stealArgs args;
-     getCapArgs(args); //all members are valid
-     int victimProcIdx = args.victimProcIdx;
-     Job* outputLoc = args.outputLocation;
-     int counterCopy = args.countCopy;
-     int topCopy = args.tCopy;
-     Job toStealCopy = args.toStealCopy;
-     //for readability, just copy them into local variables
+     int victimProcIdx;
+     int counterCopy;
+     PMem outputLoc; //read PMem thing at top of file. This is a single Job
+     int topCopy;
+     Job toStealCopy;
+     pPopArg(toStealCopy);
+     pPopArg(topCopy);
+     pPopArg(outputLoc);
+     pPopArg(countCopy);
+     pPopArg(victimProcIdx);
+	  
      
      Job updatedEntry;
      Capsule stolenCap;
      switch (getId(&toStealCopy)) {
      case emptyId: //Nothing to steal
-	  persistentCall(&stealLoop, NULL, 0); //jump steal loop 
+	  pcnt(&stealLoop); //jump steal loop
+	  
      case takenId: //someone stole it first, help them
 	  helpThief(victimProcIdx);
-	  persistentCall(&stealLoop, NULL, 0); //jump steal loop 
+	  pcnt(&stealLoop); //jump steal loop
+	  
      case scheduledId: //something to steal
 	  updatedEntry = makeTaken(&toStealCopy, outputLoc, couterCopy);
 	  stolenCap = toStealCopy.work;
-	  CAMJob(&(deques[victimProcIdx][topCopy]), toStealCopy, updatedEntry);
+	  PMem jobArray = ((PMem*) PMAddr(deques))[victimProcIdx];
+	  Job* location = ((Job*) PMAddr(jobArray)) +topCopy;
+	  CAMJob(location, toStealCopy, updatedEntry);
 	  helpThief(victimProcIdx);
 	  /* local entry at outputLoc is added in helpThief */
-	  if (!CompareJob(deques[victimProcIdx][topCopy], updatedEntry))
-	       persistentCall(makeCapsule(&stealLoop, NULL, 0)); //jump steal loop, we failed to get this one
-	  perisistentCall(stolenCap); //we successfully stole it, jump to the work
+	  if (!CompareJob(*location, updatedEntry))
+	       pcnt(&stealLoop); //jump steal loop, we failed to get this one
+
+	  jobStartStack(&toStealCopy);
+	  pCntManual(stolenCap); //manual to set forkpath
+	  
      case localId: //could grave rob
-	  if (!isLive(victimProcIdx) && CompareJob(deques[victimProcIdx][topCopy], toStealCopy)) {
-	       persistentCall(mCapStruct(&graveRob, args)); //jump to graveRob and pass args untouched, cap bound
+	  PMem jobArray = ((PMem*) PMAddr(deques))[victimProcIdx];
+	  Job onStack = ((Job*) PMAddr(jobArray))[topCopy];
+	  if (!isLive(victimProcIdx) &&
+	      CompareJob(onStack, toStealCopy)) {
+	       
+	       pPushCntArg(victimProcIdx);
+	       pPushCntArg(countCopy);
+	       pPushCntArg(outputLoc);
+	       pPushCntArg(topCopy);
+	       pPushCntArg(toStealCopy);
+	       pcnt(&graveRob); //jump to graveRob and pass args untouched, cap bound
 	  }
-	  persistentCall(makeCapsule(&stealLoop, NULL, 0)); //jump steal loop, stolen or alive
+	  pcnt(&stealLoop); //jump steal loop, stolen or alive
+	  
      }
 }
 
 /*
  * continuation of stealCnt if trying to rob a dead proc. jumps to
  * work or stealLoop. takes same args as stealCnt
+ *
+ * TODO fine tooth comb this with charlie, not sure if this is right
  */
 Capsule graveRob(void) {
-     struct stealArgs args;
-     getCapArgs(args); //all members are valid
-     int victimProcIdx = args.victimProcIdx;
-     Job* outputLoc = args.outputLocation;
-     int counterCopy = args.countCopy; 
-     int topCopy = args.tCopy;
-     Job toStealCopy = args.toStealCopy;
-     //for readability, just copy them into local variables
+     int victimProcIdx;
+     PMem outputLoc; //read top of file. This is a single Job
+     int counterCopy; 
+     int topCopy;
+     Job toStealCopy;
+     pPopArg(toStealCopy);
+     pPopArg(topCopy);
+     pPopArg(outputLoc);
+     pPopArg(countCopy);
+     pPopArg(victimProcIdx);
      
      Job updatedEntry;
      Capsule stolenCap;
 
      stolenCap = toStealCopy.work;
-     updatedEntry = makeTaken(toStealCopy, outputLoc, counterCopy);
-     deques[victimProcIdx][topCopy+1] = makeEmpty(deques[victimProcIdx][topCopy+1]);
-     CAMJob(&(deques[victimProcIdx][topCopy]), toStealCopy, updatedEntry);
+     updatedEntry = makeTaken(toStealCopy, PMAddr(outputLoc), counterCopy);
+
+     PMem jobArray = ((PMem*) PMAddr(deques))[victimProcIdx];
+     Job* oldTop = ((Job*) PMAddr(jobArray)) +topCopy;
+     *(newTop+1) = makeEmpty(*(newTop+1));
+     
+     CAMJob(oldTop, toStealCopy, updatedEntry);
      helpThief(victimProcIdx); //non-persistent leaf call, makes local entry
-     if (!CompareJob(deques[victimProcIdx][topCopy], updatedEntry)) {
-	  persistentCall(makeCapsule(&stealLoop, NULL, 0)); //jump steal loop, we failed to steal this one
+     
+     if (!CompareJob(*oldTop, updatedEntry)) {
+	  pcnt(&stealLoop); //jump steal loop, we failed to steal this one
      }
-     persistentCall(stolenCap); //jump to work we stole
+
+     jobStartStack(&toStealCopy); //copy args to clean stack
+     pCntManual(stolenCap); //manual cap version to set forkpath
 }
 
 
-//arguments and forward dec for readability
+//forward dec for readability
 Capsule popBCnt(void); 
-struct popBargs {
-     int bCopy;
-     Job jCopy;
-};
 
-/* *
- * this is a persitent call called from scheduler that takes no
+/* 
+ * this is a persitent continuation from scheduler that takes no
  * arguments and either jumps to work to be done if there is any, or
  * to the stealing function through its continuation (split findwork
  * from the paper in half)
  */
 Capsule popBottom(void) {
-     struct popBargs args; 
-     args.bCopy = *bot;
-     args.jCopy = localDeque[botCopy-1]; 
-     persistentCall(mCapStruct(&popBCnt, args)); //this is the cap bound in the middle
-     
+     pPushCntArg(*bot); //copy of bottom
+     pPushCntArg(localDeque[botCopy-1]); //copy of job
+     pcnt(&popBCnt); //this is the cap bound in the middle
 }
 
 /*
  * continuation of popBottom
  */
 Capsule popBCnt(void) {
-     struct popBargs args;
-     getCapArgs(args);
-     if (isScheduled(args.jCopy)) { //not yet being worked on by anyone
+     Job jobCopy;
+     int botCopy;
+     pPopArg(jobCopy);
+     pPopArg(botCopy); 
+     
+     if (isScheduled(jobCopy)) { //not yet being worked on by anyone
 	  /* construct a new local job from the scheduled job */
-	  Job replacement = makeLocal(args.jCopy); //version that is claimed by this proc
-	  CAMJob(&(localDeque[args.bCopy-1], args.jCopy, replacement));
-	  if (CompareJob(localDeque[args.bCopy-1], replacement)) {
-	       *bot = args.bCopy-1; //update the global value (PM)
-	       persistentCall(replacement.work); //jump to work
+	  Job replacement = makeLocal(jobCopy); //version that is claimed by this proc
+	  CAMJob(&(localDeque[botCopy-1], jobCopy, replacement));
+	  if (CompareJob(localDeque[botCopy-1], replacement)) {
+	       *bot = botCopy-1; //update the global value (PM)
+
+	       jobStartStack(&replacement); //copy args to clean stack
+
+	       pCntManual(replacement.work); // use manual version to set forkpath properly, schdeduler-usercode boundary
 	  }
      }
-     persistentCall(makeCapsule(&stealLoop, NULL, 0)); //jump to steal loop if there is nothing to work on
+     //no work to be done here, steam from someone
+     pcnt(&stealLoop);
 }
 
 /*
@@ -294,7 +460,7 @@ Capsule popBCnt(void) {
  */
 Capsule scheduler(void) {
      localDeque[*bot] = makeEmpty(localDeque[*bot]);
-     persistentCall(makeCapsule(&popBottom, NULL, 0));
+     pcnt(&popBottom);
      /*
       * findwork from the paper is now run as a continuation of
       * popBottom on failure, and the steal loop and stealing
