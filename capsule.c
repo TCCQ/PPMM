@@ -1,7 +1,8 @@
 #include "capsule.h"
-#include "assert.h"
 #include "pStack-internal.h"
 #include "pStack.h"
+#include "procMap.h" //for hardWhoAmI
+#include "typesAndDecs.h"
 
 PMem currentlyInstalled; //see capsule.h
 
@@ -34,11 +35,9 @@ Capsule makeCapsule(funcPtr_t instructions) {
 /* 
  * prevent having to retype all this garbage all the time to access
  * current capsule. (hopefully I don't need to do that often anyway)
- *
- * this needs to use a hard whoAmI 
  */
 Capsule quickGetInstalled(void) {
-     int hardWhoAmI = ;//TODO
+     int hardWhoAmI = hardWhoAmI();
      PMem myPointer = ( (PMem*)PMAddr(currentlyInstalled) )[hardWhoAmI];
      return *( (Capsule*) PMAddr(myPointer) );
 }
@@ -89,23 +88,39 @@ PMem installedSwap;
  * main loop can start. maybe in some seperate initialization header?
  *
  * TODO ensure the atomics writes work properly here
- *
- * TODO this back and forth mech seems like it would break if you got
- * into a situation where your capsules where the same. This is
- * possible because it no longer compares arguements, just argument
- * sizes.
  */
-
-
 void trampolineCapsule(void) {
      Capsule next;
      PMem pointerToCurrent;
+     int hardWhoAmI = hardWhoAmI();
      while (true) { // TODO make quiting mechinism
 
+
+	  /*
+	   * TODO flush cache BEFORE cap change over
+	   *
+	   * so there is a gcc builtin, but its documentation mentions
+	   * only instruction caches, and we want data caches.
+	   * Specifically we need to flush the full mapped shared
+	   * persistent memory, and everything else can be untouched.
+	   * The system call "cacheflush" in sys/cachectl.h seems to
+	   * allow for data cache flushing, but does not seem super
+	   * portable. Finally there may be some flushing possible
+	   * through whatever we are using to do the mapping, but I am
+	   * not sure.
+	   *
+	   * Slight worries about memory ordering and the order of
+	   * writing back to the shared visible memory. If those
+	   * writes are not in the same order as they are in code then
+	   * it is possible that we could have issues. Absolutely no
+	   * clue what is to be done about that, so I am not going to
+	   * worry about it at the moment. Hopefully it doesn't become
+	   * a problem.
+	   */
+	  
 	  /*
 	   * This is the first part of the quick get code, but without the last deref
 	   */
-	  int hardWhoAmI = ;//TODO
 	  pointerToCurrent = ( (PMem*)PMAddr(currentlyInstalled) )[hardWhoAmI];
 	  
 	  next = ((*( (Capsule*) PMAddr(myPointer) )).rstPtr)(); //do the work and save the next capsule

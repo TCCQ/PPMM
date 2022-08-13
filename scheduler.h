@@ -1,5 +1,6 @@
 #include "capsule.h" 
 #include "memUtilities.h"
+#include "typesAndDecs.h"
 /* Interally visible stuff for the scheduler code */
 
 /*
@@ -8,14 +9,7 @@
  * A job is one or more capsules.
  */
 
-/* compile time constants */
-#define NUM_PROC 4
-#define STACK_SIZE 256
-#define JOB_ARG_SIZE 256
 
-/* readability */
-typedef unsigned char boolean;
-typedef unsigned char byte;
 
 /* job struct declartions */
 typedef unsigned char id_t;
@@ -65,9 +59,22 @@ boolean CompareJob(Job, Job);
 /* CAM specifically for jobs, (target, expected, replaced) */
 void CAMJob(Job*, Job, Job);
 
+/* 
+ * for Job continuations basically. takes a job as an argument. Used
+ * in the join call to start the output thread after both sides have
+ * joined
+ */
+Capsule singleJobPush(void);
+
+/* 
+ * declared so it can be jumped back to from things like joins 
+ */
+Capsule scheduler(void);
 
 /*
  * tell the kernel to schedule other stuff first.
+ *
+ * TODO this doesn't seem like the right place for this, but idk where to put it
  */
 void yield(void); 
 

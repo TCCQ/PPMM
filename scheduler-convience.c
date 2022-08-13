@@ -1,7 +1,7 @@
 #include "scheduler.h"
 #include "capsule.h"
 #include <sched.h> //for yield
-#include <assert.h>
+#include "assertion.h"
 #include <stdlib.h> //for rand
 
 /*
@@ -68,6 +68,8 @@ boolean isTaken(Job in) {
  * that is not something the user should be doing
  *
  * TODO should I be doing that? where do I use CompareJob?
+ *
+ * I think with the forkpath move, I don't need this? 
  */
 boolean CompareCapsule(Capsule a, Capsule b) {
      if (a.rstPtr != b.rstPtr || a.joinHead != b.joinHead || a.forkPath != b.forkPath) {
@@ -77,7 +79,14 @@ boolean CompareCapsule(Capsule a, Capsule b) {
      return true;
 }
 
-/* Comparison, == but for jobs, 1(true) for equal, 0(false) to != */
+/*
+ * Comparison, == but for jobs, 1(true) for equal, 0(false) to !=
+ *
+ * if we move forkpath to Job, compare that instead, as that should be unqiue
+ * to a thread of execution, so values can be repeated, but they can
+ * never coexist at the same time with another of the same value in
+ * two valid Jobs (alive and not stolen and all, in use basically)
+ */
 boolean CompareJob(Job a, Job b) {
      if (a.id == b.id && a.counter == b.counter) {
 	  if (isTaken(a)) {
@@ -123,7 +132,7 @@ void CAMJob(Job*, Job, Job);
  */
 void yield(void) {
      int ret = sched_yield();
-     assert(ret == 0);
+     rassert(ret == 0, "yield failed");
 }
 
 /*

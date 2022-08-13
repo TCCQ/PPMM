@@ -4,9 +4,7 @@
  * pStack management
  */
 
-
 #include "capsule.h"
-
 
 /* 
  * These are so the trampoline and capsule making code can read and
@@ -57,3 +55,9 @@ Capsule pCntCap(void);
 //defined here to keep it out of usercode
 #define pCntManual(cap) ppcnaInternal(cap, sizeof(cap));	\
      return makeCapsule(&pCntCap);
+
+/* 
+ * takes starting arguments and continuation in cnt holding area, then
+ * resets the stack, copies the arguments, and starts the continuation
+ */
+Capsule pStackReset(void);

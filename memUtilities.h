@@ -38,7 +38,7 @@ void EMfree(void*);
 typedef struct {unsigned int offset; unsigned int size} PMem;
 
 /* see above */
-void* PMAddr(PMem);
+(volatile void)* PMAddr(PMem);
 
 /* Dynamic Persistent Memory Mangagement */
 
@@ -88,9 +88,22 @@ int getProcIDX(void);
  *
  * takes a pointer and two values. its is the user's resposibility
  * that the data type is 1,2,4,8 bytes long, otherwise atomiticity is
- * not guarenteed (does actually return a value, but it shouldn't be
- * used, its a CAM but secretly a CAS)
+ * not guaranteed
+ *
+ * TODO consider adding asserts here that confirm that value is the
+ * right size.
+ *
+ * TODO fixed the no return value with a inline block scope which
+ * should prevent it? not clear could use a overkill with a ({})
+ * enclosure ("statement expression" I think), and have the line be 1;
+ * or 0;, have it return something constant. idk if I need that though
+ *
+ * TODO consider including a memsync or a flush here just to be 100%
+ * sure. idk how shared memory normally works
  */
 #ifndef CAM
-#define CAM(loc, old, new) (__atomic_compare_exchange_n(loc, &(old), new, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+#define CAM(loc, old, new) { \
+	  (__atomic_compare_exchange_n(loc, &(old), new, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) \
+	       }
 #endif
+

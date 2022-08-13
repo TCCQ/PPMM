@@ -1,16 +1,8 @@
-#ifndef persistentReturn
-#include "scheduler.h"
-#endif
 #include "set.h"
 #include "memUtilities.h"
 /*
  * declarations for capsule code
  */
-
-#define JOIN_SIZE 64
-//needs to match the length of forkpath in bits
-typedef unsigned char BYTE;
-/* TODO need to ensure that ^ is exactly 1 byte */
 
 typedef struct {
      funcPtr_t rstPtr; //where the work is for this capsule
@@ -23,7 +15,7 @@ typedef struct {
       * struct, as this information only changes on scheduler
       * interaction, aka between Jobs
       */
-     unsigned long long forkPath; //TODO I don't remember what I called this
+     unsigned long long forkPath; 
      /*
       * This is an array of PM pointers to sets.
       * size should match bits in forkPath
@@ -41,11 +33,9 @@ typedef struct {
      PMem cntHolderClean;
      PMem callHolderClean;
 
-     /* 
-      * TODO add a field for a soft whoAmI, set at the
-      * scheduler->usercode edge. and add a getter (this could be
-      * getProcIDX in memUtilities, that header is motivatioonally
-      * prior to this, consider moving that to here)
+     /* pp
+      * soft whoAmI, set at the scheduler->usercode edge. use getter
+      * (getProcIDX)
       */
      int whoAmI; 
 } Capsule;

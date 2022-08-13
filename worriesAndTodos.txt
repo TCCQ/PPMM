@@ -17,32 +17,12 @@ how do unix process restarts work? How should procIDX inheritance work?
 how do atomics work in memmapped files, and what is the read write timing? can two processes cam b->a and c->a in one spot at the same time. b->a succeeds, c->a fails, and both think they succeeded? should it be b->d, c->e? can I read a location I just cam'd? do I need to flush between? 
 
 ------------------------------------------------------------------------
-Capsules need to be small enough to be written atomically, or the currentlyInstalled/reset pointer needs to be indirect so it can be atomically swapped. Capsules never need to be CAM'd, so there is not a hard size requirement iirc.
-
-JOBs need to be CAM-able. using gcc atomic compare and swap stuff means they should be 1,2,4,8 bytes, but they include a capsule struct in them currently, which contains an ARGUMENT_SIZE byte buffer in them. We could have dynamically allocated capsules, which doesn't seem feasible. we could have dynamic arguments, but then to garbage collect each struct would need a pointer to its args and then another to the last cap.s that it needs to clean. This is unreasable are pointers are usually 3-4 bytes long.
-
-ANSWER I make the currentlyInstalled a back-and-forth swap, see trampolineCapsule. See comments at CAMJob for more thoughts on job caming. confirm
-
-------------------------------------------------------------------------
 Fix the issue with taken jobs not writing the capsule into the new local job entry
 
 ANSWER I think I fixed this in helpThief? confirm
 
 ------------------------------------------------------------------------
-consider declaring all of the Capsule func(void) stuff as funcPtr_t func for readability, and to make it clear that they don't take argument in the normal way. Mostly stylistic
-
-------------------------------------------------------------------------
 do the intial setup, all the PM setup, procIdx mapping and setting all the pointer and whatnot, see top of scheduler.c and bottom of scheduler.h
-
-------------------------------------------------------------------------
-PM pointers should probably be declared as volatile, could make a def/ for that for readability
-#define PM volatile
-PM int* top; or whatever
-
-------------------------------------------------------------------------
-rewrite the scheduling code to use PMem and persistent stack properly. avoid Capsule types in arguments, and Jobs, as they include a Capsule.
-
-TODO Consider if I need to go deeper and have a real Pstack, not just an array, so I can store bigger arguments.
 
 ------------------------------------------------------------------------
 how do all these setup things work? should I declare them all extern?
@@ -50,8 +30,32 @@ how do all these setup things work? should I declare them all extern?
 figure out later
 
 ------------------------------------------------------------------------
-how do I pass arguments through the scheduler?
+where should forkpath be?
 
-currently args are through the stack, but that is not possible. Should
-I add an argument field to a job? then copy it to the stack on the
-start? that is what makes the most sense to me
+currently it is in the capsule, but that maybe doesn't make sense, as it only changes on interaction with the scheduler, so it could be in the job struct instead, which I think makes more sense abstractly. However if we do that, then we need to make sure that all the local entries are *not* just placeholders for checking the currently installed capsule, but instead have valid data (notably the forkpath). Not sure if that is a quick fix. Also need to decide what the deal is going to be with Joins. That is the other place where forkpath changes, so should it be a capsule handoff like currently, or if it's in job, then a scheduler single Job push (currently we only have pushBottom, which does two). Unclear
+
+------------------------------------------------------------------------
+single job scheduler push.
+
+for starting the program and for joins if I go with forkpath in job not in capsule, we need some way to do Job rollover, (end of one job, start of next without pushing garbage). Could maybe just have a inbetween capsule that edits the current job? consider
+
+-----------------------------------------------------------------------
+isLive
+
+currently can only hardfault. how do softfaults work? is that not proc death but instead internal to the program? just an interupt handler or something? advise. nothing here seems practical
+
+-----------------------------------------------------------------------
+blocking calls
+
+how to safely do any sort of grab, edit, release work? on hardfault, someone else edits and releases, so that's fine, but if all alive procs are blocked waiting for resource, we have deadlock. possible to grab w/ liveCheck? hard to follow who is working at whom's desk. some sort of 'shelf this work and steal' thing for blocking calls? not trivial
+
+----------------------------------------------------------------------
+implement single push
+
+just have it be like push bottom, copy current job to second entry, make local (both are valid now), copy toPush into previous (not the new top). then jump to scheduler which will pop top and continue new thread
+
+----------------------------------------------------------------------
+kinds of faults
+
+proposed solution:
+hard faults are procs dying, and soft faults are triggered / simulated internally with a signal handler. Investigate

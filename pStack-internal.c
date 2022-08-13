@@ -7,12 +7,7 @@
 #include "memUtilities.h"
 #include "pStack-internal.h"
 #include "pStack.h"
-
-/*
- * TODO 100% sure this is done somewhere else in my code and I should
- * just switch all of them to some system header
- */
-#define byte unsigned char
+#include "typesAndDecs.h"
 
 /* 
  * These are the equivalent of dereferencing the clean versions (in
@@ -20,7 +15,7 @@
  * on capsule turnover
  *
  * Their sizes are not the # of bytes after that are valid, but the #
- * from the start of the holder (pStack's is not meaningful)
+ * from the start of the holder 
  *
  * The clean dirty copying happens in the creation of a new capsule.
  * 
@@ -33,7 +28,7 @@ PMem callHolder;
 /* 
  * I need a pStack for each process and a pair of holding areas for
  * capsules (this forces maximum capsule + argument size, but
- * whatever). They all need to be cross accessable
+ * whatever). They all need to be cross accessible
  *
  * These are arrays of PMems for holding areas and pStacks.
  * Dereference, pick yours, deref again to get to the data. All of
@@ -41,7 +36,8 @@ PMem callHolder;
  *
  * again real def here, others are extern
  *
- * TODO the holders need to be 2*(JOB_ARG_SIZE + sizeof(funcPtr_t)) sized at least
+ * TODO the holders need to be 2*(JOB_ARG_SIZE + sizeof(funcPtr_t))
+ * sized at least (or 3? not sure)
  */
 
 PMem continuationHolders; 
@@ -79,6 +75,7 @@ void ppaInternal(void* output, const int size) {
 	  *(((byte*)output)++) = *(input++);
      }
      pStackDirty.offset -= size; //this is a pop, move down
+     pStackDirty.size -= size;
 }
 
 /* 
@@ -101,6 +98,7 @@ Capsule pCntInternal(void) {
 	  *(output++) = *(input++);
      }
      pStackDirty.offset += cntHolderDirty.size;
+     pStackDirty.size += cntHolderDirty.size;
      //now the stack has all the stuff, with the funcPtr at the top
      funcPtr_t continuation;
      pPopArg(continuation);
@@ -127,6 +125,7 @@ Capsule pCallInternal(void) {
 	  *(output++) = *(input++);
      }
      pStackDirty.offset += cntHolderDirty.size + callHolderDirty.size;
+     pStackDirty.size += cntHolderDirty.size + callHolderDirty.size;
 
      funcPtr_t cnt;
      pPopArg(cnt);
@@ -155,7 +154,29 @@ Capsule pCntCap(void) {
 	  *(output++) = *(input++);
      }
      pStackDirty.offset += cntHolderDirty.size;
-     //now the stack has all the stuff, with the funcPtr at the top
+     pStackDirty.size += cntHolderDirty.size;
+     //now the stack has all the stuff, with the capsule at the top
+     Capsule continuation;
+     pPopArg(continuation);
+     //dirty stack is set as it should be for user code
+     
+     return continuation; 
+}
+
+//set the 
+Capsule pStackReset(void) {
+     pStackDirty.offset -= pStackDirty.size;
+     pStackDirty.size = 0;
+     //stack is now empty
+     int howMuchToCopy = cntHolderDirty.size;
+     byte* input = (byte*)PMAddr(cntHolderDirty);
+     byte* output = (byte*) PMAddr(pStackDirty);
+     while (howMuchToCopy--) {
+	  *(output++) = *(input++);
+     }
+     pStackDirty.offset += cntHolderDirty.size;
+     pStackDirty.size += cntHolderDirty.size;
+     //now the stack has all the stuff, with the capsule at the top
      Capsule continuation;
      pPopArg(continuation);
      //dirty stack is set as it should be for user code

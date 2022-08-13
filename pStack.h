@@ -1,11 +1,10 @@
+#include "pStack-internal.h"
+#include "memUtilities.h"
+#include "capsule.h"
 /* 
  * This is the file that declares the persistent stack functions that
  * should be used in the persistent code internally and in user code. 
  */
-
-#include "pStack-internal.h"
-#include "memUtilities.h"
-#include "capsule.h"
 
 /* 
  * I need to define a persistent continuation (equivalent to a capsule

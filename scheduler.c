@@ -5,6 +5,7 @@
 #include "memUtilities.h" //PMem
 #include "pStack.h" //persistent flow operations
 #include "pStack-internal.h"
+#include "typesAndDecs.h"
 
 /* the deque that this process owns and can push to, is a ptr to PM */
 Job* localDeque; 
@@ -69,19 +70,6 @@ void helpThief(int victimProcIdx) {
 }
 
 
-/* 
- * ephemeral leaf call, empties the pStack and then copies the
- * starting arguments into the stack. This needs to be called from
- * some place that can make progress without the pStack (basically
- * just the last capsule before the usercode capsule jump)
- */
-void jobStartStack(const Job* from) {
-     pStackDirty = myStack; //reset based on a soft whoAmI
-     for (int i = 0; i < from->argSize; i++) {
-	  *(pStackDirty++) = from->args[i];
-     }
-}
-
 /* forward dec for readability */
 Capsule pushBCnt(void);
 Capsule forkCnt(void);
@@ -115,7 +103,7 @@ Capsule pushBCnt (void) {
      pPopArg(bottomCopy);
      pPopArg(right);
      pPopArg(left);
-     
+
      Job currentJobCopy = localDeque[bottomCopy];
      if (currentJobCopy.counter == currentCounterCopy && isLocal(currentJobCopy)) {
 	  /* I guess this makes the replacement happen once? not sure why this is needed */
@@ -127,13 +115,37 @@ Capsule pushBCnt (void) {
 	  replacement.counter = currentJobCopy.counter+1; 
 	  CAMJob(&localDeque[bottomCopy], currentJobCopy, replacement); //one half is done
 
-	  jobStartStack(&right); //copy right args to clean stack
+	  /* 
+	   * TODO we need to set the job info in the local entry, that
+	   * is now acting as more than just a flag for checking the
+	   * currently installed capsule. It needs to fill the
+	   * forkpath and whatnot now, because that is getting moved
+	   * from capsule to Job. Also make sure to update the counter
+	   * when doing that
+	   *
+	   * this is (indirectly) a scheduler-usercode boundary
+	   */
+	  for (int i = 0; i < right.argSize; i++) {
+	       pPushCntArg(right.args[i]); 
+	  }
+	  //pStackReset will properly empty the stack and copy these
+	  //arguments to the bottom of the stack
+	  pPushCntArg(right.work); //capsule that uses these argument
 	  
-          pCntManual(right.work); //use the manual override version of pcnt to allow manual forkpath editing
+	  //use pStackReset here, takes args to push and then the
+	  //continuation capsule. declared in pStack-internal.h
+	  return makeCapsule(&pStackReset);
 
-     } else if (isEmpty(localDeque[args.bCopy+1])) { 
-	  persistentCall(mCapStruct(&pushBottom, args)); //this is eq to pushBottom(inputCapsule);
-	  //TODO when is this reached?
+     } else if (isEmpty(localDeque[args.bCopy+1])) {
+	  pPushCntArg(left);
+	  pPushCntArg(right);
+	  pcnt(&pushBottom); //basically restarting this call
+	  /*
+	   * this is reached if a proc hardfaults in this cap, the
+	   * theif takes this, and restarts to do the push on their
+	   * own deque instead of the victim's deque
+	   */
+	    
      }
 }
 
@@ -169,27 +181,12 @@ Capsule pushBCnt (void) {
  * outside of the pStack (in the job in this case)
  */
 Capsule fork(void) {
-     //don't pop args here, let them pass through to forkCnt after the PMalloc call
-     pPushCalleeArg(sizeof(Set));
-     pcall(&PMalloc, &forkCnt);
-     /*
-      * the callee just gets the size, the cnt doesn't get anything
-      * explicit, but implicitly gets everything that was pushed but
-      * not popped as and argument to this
-      */
-}
-
-//after pCall in fork, takes fork args + pMem pointer
-Capsule forkCnt(void) {
      int leftSize, rightSize, joinSize;
      byte leftArgs[JOB_ARG_SIZE];
      byte rightArgs[JOB_ARG_SIZE];
      byte joinArgs[JOB_ARG_SIZE];
      funcPtr_t leftPtr, rightPtr, joinPtr;
      byte* output;
-     PMem joinSet; //TODO fix type of PMalloc
-
-     pPopArg(joinSet); //PMalloc return value
      
      pPopArg(leftSize);
      output = leftArgs+leftSize;
@@ -254,12 +251,11 @@ Capsule forkCnt(void) {
      joinJob.argSize = joinSize; //finished with join Job struct
 
      //now the Jobs are all set
-     
-     *( (Set*) PMAddr(joinSet) ) = SetInitialize(joinJob); 
-     
+
      pPushCntArg(leftJob);
      pPushCntArg(rightJob);
-     pcnt(&pushBottom); //jump to pushBottom
+     pPushCalleeArg(joinJob);
+     pcall(&getAndInitSet, &pushBottom);
 }
 
 /* forward decs for readability */
@@ -354,8 +350,17 @@ Capsule stealCnt(void) {
 	  if (!CompareJob(*location, updatedEntry))
 	       pcnt(&stealLoop); //jump steal loop, we failed to get this one
 
-	  jobStartStack(&toStealCopy);
-	  pCntManual(stolenCap); //manual to set forkpath
+	  /* 
+	   * push starting arguments and then usercode cap and then
+	   * jump to pStackReset, this is (indirectly) a
+	   * scheduler-usercode boundary
+	   */
+	  for (int i = 0; i < toStealCopy.argSize; i++) {
+	       pPushCntArg(toStealCopy.args[i]);
+	  }
+	  pPushCntArg(toStealCopy.work);
+
+	  return makeCapsule(&pStackReset);
 	  
      case localId: //could grave rob
 	  PMem jobArray = ((PMem*) PMAddr(deques))[victimProcIdx];
@@ -378,8 +383,6 @@ Capsule stealCnt(void) {
 /*
  * continuation of stealCnt if trying to rob a dead proc. jumps to
  * work or stealLoop. takes same args as stealCnt
- *
- * TODO fine tooth comb this with charlie, not sure if this is right
  */
 Capsule graveRob(void) {
      int victimProcIdx;
@@ -410,8 +413,17 @@ Capsule graveRob(void) {
 	  pcnt(&stealLoop); //jump steal loop, we failed to steal this one
      }
 
-     jobStartStack(&toStealCopy); //copy args to clean stack
-     pCntManual(stolenCap); //manual cap version to set forkpath
+     /* 
+      * push starting args and usercode cap and jump to pStackReset.
+      * this is (indirectly) a scheduler-usercode boundary
+      */
+     for (int i = 0; i < toStealCopy.argSize; i++) {
+	  pPushCntArg(toStealCopy.args[i]);
+     }
+     pPushCntArg(toStealCopy.work);
+
+     return makeCapsule(&pStackReset);
+     
 }
 
 
@@ -419,7 +431,7 @@ Capsule graveRob(void) {
 Capsule popBCnt(void); 
 
 /* 
- * this is a persitent continuation from scheduler that takes no
+ * this is a persistent continuation from scheduler that takes no
  * arguments and either jumps to work to be done if there is any, or
  * to the stealing function through its continuation (split findwork
  * from the paper in half)
@@ -446,13 +458,90 @@ Capsule popBCnt(void) {
 	  if (CompareJob(localDeque[botCopy-1], replacement)) {
 	       *bot = botCopy-1; //update the global value (PM)
 
-	       jobStartStack(&replacement); //copy args to clean stack
 
-	       pCntManual(replacement.work); // use manual version to set forkpath properly, schdeduler-usercode boundary
+	       /* 
+		* need to copy job args to stack, and then user
+		* capsule. then pStackReset will handle the stack
+		* emptying and jumping to user code
+		*
+		* this is (indirectly) a scheduler-usercode boundary
+		*/
+	       for (int i = 0; i < replacement.argSizel i++) {
+		    pPushCntArg(replacement.args[i]);
+	       }
+	       pPushCntArg(replacement.work);
+
+	       return makeCapsule(&pStackReset);
 	  }
      }
      //no work to be done here, steam from someone
      pcnt(&stealLoop);
+}
+
+
+Capsule sjpCnt(void); //forward dec
+Capsule sjpCopyJob(void);
+/* 
+ * takes a job, basically a job continuation swapping mechanism
+ */
+Capsule singleJobPush(void) {
+     int bottomCopy = *bot;
+     //toPush job goes through to cnt
+     pPushCntArg(bottomCopy);
+     pPushCntArg(localDeque[bottomCopy]);
+     pPushCntArg(getCounter(localDeque[bottomCopy]));
+     
+     pPushCalleeArg(bottomCopy);
+     pPushCalleeArg(localDeque[bottomCopy]);
+     pPushCalleeArg(localDeque[bottomCopy+1]);
+     pPushCalleeArg(getCounter(localDeque[bottomCopy+1]));
+     pcall(&sjpCopyJob, &spjCnt);
+}
+
+Capsule sjpCopy(void) {
+     int botCopy;
+     Job replacement;
+     int copiedOverCounter;
+     Job copiedOver;
+     pPopArg(copiedOverCounter);
+     pPopArg(copiedOver);
+     pPopArg(replacement);
+     pPopArg(botCopy);
+
+     *bot = botCopy+1; //allocated a new job
+
+     replacement.counter = copiedOverCounter+1;
+     replacement.id = localId; //make local
+     CAMJob(&(localDeque[*bot]), copiedOver, replacement);
+     /* 
+      * this is only a cam so that it is atomic properly. See CAMJob description
+      */
+     pret((byte)0); //should I return if the cam worked? TODO
+}
+
+Capsule sjpCnt(void) {
+     Job old;
+     int botCopy;
+     int oldCounter;
+     Job new;
+     byte waste;
+     pPopArg(waste); //ignore
+     pPopArg(oldCounter);
+     pPopArg(old);
+     pPopArg(botCopy);
+     pPopArg(new);
+
+     new.counter = oldCounter+1;
+     new.id = localId;
+     CAMJob(&(localDeque[botCopy]), old, new);
+     /* 
+      * so now we have the toPush job followed by a copy of the
+      * previous job both at the bottom of the deque. Both are local
+      * (TODO is this necessary?) now we go to scheduler which will
+      * pop the old one and start on the new one, thus performing a
+      * job continuation
+      */
+     pcnt(&scheduler);
 }
 
 /*
