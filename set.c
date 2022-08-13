@@ -2,104 +2,211 @@
 #include "capsule.h"
 #include "flow.h" //join declaration
 #include "memUtilities.h"
-/*
- * the forkPath of the outbound capsule is managed internally and
- * should not be specified by the user
- *
- * This is an ephemeral leaf call
+#include "procMap.h" //hard who am I
+#include "pStack.h"
+#include "scheduler.h"
+#include "typesAndDecs.h"
+
+/* 
+ * TODO init, points to a SET_POOL_SIZE array of sets in PM
  */
-Set SetiInitialize(Capsule cnt) {
-     Set out;
-     out.data = 0x0003; // 0x00 b00000011
-     out.continuation = cnt;
-     return out;
+PMem setPool;
+
+Set* quickGetSet(int idx) {
+     return ((Set*) PMAddr(setPool))+idx;
 }
 
-struct clearArgs {
-     PMem s; //PMptr single set
-     BYTE oldData
-     Capsule self;
-};
-
-/*
- * Persistent call. Takes the continuation of the join as a sole
- * argument. Cleans the allocated memory for this set object
- * associated with the join
- *
- * TODO this is good but not quite safe, as if both arrive at the same
- * time, then one succeeds but faults repeatedly, staying in tryClear
- * while the other succeeds and comes here, then s is freed and the
- * faulting one tries to read it after it gets freed. Not sure how to
- * fix that
+/* 
+ * persistent function to be used with pcall, takes continuation Job
+ * as an argument, and a owner tag, acquires a new set and initializes it. Then returns
+ * the idx of that set in the pool. this should be stored and
+ * retrieved during a join call. 
  */
-Capsule cleanup(void) {
-     Capsule cnt;
-     getCapArgs(&cnt);
-     PMem toFree = cnt.joinLocs[cnt.joinHead--];
-     PMfree(toFree); //matches alloc in fork call
-     cnt.forkpath >>= 1;
-     persistentCall(cnt);
-     /*
-      * Since it is unsafe to edit the currently installed capsule, we
-      * pop the fork history and whatnot in the next capsule
-      */
+Capsule getAndInitSet(void) {
+     pPushCalleeArg((int)0);
+     //Job, owner goes through to cnt
+     pcall(&loopGetSet, &gotSet);
 }
 
-/*
- * TODO this can be cleaned up. I don't need to pass all of self, just
- * the last bit of forkpath. that way there is no danger of having the
- * wrong self struct. I don't think that is an issue, but I think it
- * would be easier to read
+/* 
+ * gets an int, tries to acquire said set
+ *
+ * does not block, fail assert if goes off the end of the list,
+ * consider if that is acceptable 
  */
-Capsule tryClear(void) {
-     struct clearArgs args;
-     getCapArgs(&args);
-     BYTE replacement = args.oldData;
-     BYTE mask = 1 << (args.self.forkpath & 1);
-     replacement &= ~(mask); //clear bit
-     replacement &= ~((~(args.self.forkpath & 1)) << 7);
-     /* set the high bit to which side did the editing */
-     CAM(&(( (Set*) PMAddr(args.s) )->data), args.oldData, replacement);
-     //only left OR right can succeed at 1 time, and the high bit will tell which
+Capsule loopGetSet(void) {
+     int idx;
+     pPopArg(idx);
 
+     rassert(idx < SET_POOL_SIZE, "could not allocate an additional set from set pool");
      
-     if (((Set*) PMAddr(args.s))->data & 0x03 == 0) {
-	  /* the data is clear */
-	  if (((Set*) PMAddr(args.s))->data >> 7 == ((Set*) PMAddr(args.s))elf.forkpath & 1) {
-	       /* this thread was the final clear */
-	       persistentCall(mCapStruct(&cleanup, cnt)); 
-	  } else {
-	       /*
-		* this join is done, but not by this side. I must have
-		* faulted. The other side will continue, I am done
-		*/
-	       persistentReturn; 
-	  }
+     Set* ptr = quickGetSet(idx); //in pool
+     if (ptr->tagAndData.data) { //TODO atomic read. write is a CAM
+	  pPushCntArg(idx+1) //move on, this is in use
+	  pcnt(&loopGetSet);
      } else {
-	  /*
-	   * the data is not clear. Either I am here first or my CAM
-	   * failed
-	   */
-	  if (((Set*) PMAddr(args.s))->data == replacement) {
-	       /*
-		* my cam worked, I am just the first. I am free to leave
-		*/
-	       persistentReturn; 
-	  } else {
-	       /* my cam failed, the other guy got here first */
-	       args.oldData = ((Set*) PMAddr(args.s))->data; //load new data
-	       persistentCall(mCapStruct(&tryClear, args)); //try again
-	  }
+	  //open? try to grab
+	  pPushCntArg(ptr->tagAndData);
+	  pPushCntArg(idx);
+	  pcnt(&aquireSet);
      }
 }
 
-/*
- * persistent call that uses currently installed capsule info to perform a join. takes no arguments
+/* 
+ * gets idx of attempted acquire, ret idx on success, popping
+ * newOwner, cnt loop+1 on
+ * fail, repush newOwnser (DOES NOT BLOCK, safe)
+ */
+Capsule aquireSet(void) {
+     int idx;
+     struct swappable old;
+     pPopArg(old);
+     pPopArg(idx);
+     int newOwner;
+     pPopArg(newOwner); //from getAndInitSet
+
+     struct swappable replacement;
+     replacement.data = 2;
+     replacement.owner = newOwner;
+     replacement.isLast = 0; //not in use;
+     
+     Set* ptr = quickGetSet(idx);
+     CAM(&(ptr->tagAndData), old, replacement);
+
+     if (ptr->owner == newOwner) {
+	  //success!, return idx
+	  pret(idx);
+     } else {
+	  //failed, back to loop
+	  pPushCntArg(newOwner); //save for next time
+	  pPushCntArg(idx+1);
+	  pcnt(&loopGetSet)
+     }
+}
+
+/* 
+ * gets a idx of a grabbed set and a Job, do init
+ */
+Capsule gotSet(void) {
+     int idx;
+     Job postJoin;
+     pPopArg(idx);
+     pPopArg(postJoin);
+     
+     Set* setPtr = quickGetSet(idx);
+
+     //owner is set already
+     setPtr->continuation = postJoin;
+     pRet(idx);
+}
+
+
+/* 
+ * takes no args, jumps to scheduler or cnt depending on order, reach
+ * via pcnt (TODO macro?)
  */
 Capsule join(void) {
-     struct clearArgs args;
-     args.s = currentlyInstalled->joinLocs[currentlyInstalled->joinHead];
-     args.self = *currentlyInstalled;
-     args.oldData = ((Set*) PMAddr(args.s))->data;
-     persistentCall(mCapStruct(&tryClear, args));
+     int mySet = /* TODO where is the set stored */;
+     byte mySide = /* TODO where is the bit from fork stored */;
+     int expectedOwner = /* TODO where is that stored? */;
+     pPushCntArg(mySide);
+     pPushCntArg(expectedOwner);
+     pPushCntArg(mySet);
+     pcnt(&checkOut);
+}
+
+/* 
+ * takes idx and side
+ */
+Capsule checkOut(void) {
+     int idx;
+     int expectedOwner;
+     byte mySide;
+     pPopArg(idx);
+     pPopArg(expectedOwner);
+     pPopArg(mySide);
+
+     Set* ptr = quickGetSet(idx);
+
+     struct swappable current;
+     struct swappable rep;
+
+     /* 
+      * This is slightly strange, but I am worried about proceeding
+      * thinking that a CAM has worked without checking even in
+      * situation where I think it is safe. so even if you edit to be
+      * the last, then you still go around again to check that you
+      * are. Someone else can go over this and confirm that it is safe
+      * and optimize or whatever later
+      */
+     while (true) {
+	  current = ptr->tagAndData;
+	  rep.owner = expectedOwner;
+     
+	  if (current.owner == expectedOwner) {
+	       if (current.data == 2) {
+		    //untouched
+		    rep.data = 1;
+		    rep.isLast = 0x02 | mySide;
+		    CAM(&(ptr->tagAndData), current, rep);
+	       
+	       } else if (current.data == 1 && isLast == 0x02 | mySide) {
+		    //I was the last edit and the first to arrive, free to leave
+		    pcnt(&scheduler);
+	       
+	       } else if (current.data == 1 && isLast == 0x02 | ((~mySide) & 0x01)) {
+		    //I am second to arrive and the other guy has edited
+		    rep.data = 0;
+		    rep.isLast = 0x02 | mySide;
+		    CAM(&(ptr->tagAndData), current, rep); 
+	       
+	       } else if (current.data == 0 && isLast == 0x02 | mySide) {
+		    //I was last edit and last to arrive, do the work
+		    pPushCntArg(idx);
+		    pcnt(&cleanup);
+	       
+	       } else if (current.data == 0 && isLast == 0x02 | ((~mySide) & 0x01)) {
+		    //I was not the last edit or the last to arrive, am
+		    //free to go
+		    pcnt(&scheduler);
+	       
+	       } else {
+		    /*
+		     * current.data == 0 && !(isLast & 0x02)
+		     *
+		     * I am last to arrive and the other guy has started
+		     * cleanup
+		     */
+		    pcnt(&scheduler);
+	       }
+	  } else {
+	       /* 
+		* owner has changed, the other guy has cleaned up and
+		* someone else has moved in
+		*/
+	       pcnt(&scheduler);
+	  }	  
+     }
+}
+
+/* 
+ * I was last and have to pick up the work. takes idx
+ */
+Capsule cleanup(void) {
+     int idx;
+     pPopArg(idx);
+
+     Set* ptr = quickGetSet(idx);
+     pPushCntArg(ptr->continuation);
+     pPushCntArg(idx);
+     pcnt(&cleanupCnt);
+}
+
+Capsule cleanupCnt(void) {
+     int idx;
+     pPopArg(idx);
+
+     quickGetSet(idx)->isLast = 0; //not in use anymore
+     //job goes through
+     pcnt(&singleJobPush); //handover to scheduler to work there
 }
