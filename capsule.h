@@ -1,27 +1,29 @@
+#define CAPSULE_INCLUDED 1
+//prevent mutually recursive inclusions
+
 #include "set.h"
 #include "memUtilities.h"
+#incldue "typesAndDecs.h"
 /*
  * declarations for capsule code
  */
+
 
 typedef struct {
      funcPtr_t rstPtr; //where the work is for this capsule
      
      /*
-      * each bit is the left/right status of the fork that lead to
-      * this capsule. See fork and join in scheduler.c
-      *
-      * TODO all forking material here should be moved to the Job
-      * struct, as this information only changes on scheduler
-      * interaction, aka between Jobs
+      * one bit, when I join am I left or right
       */
-     unsigned long long forkPath; 
-     /*
-      * This is an array of PM pointers to sets.
-      * size should match bits in forkPath
+     byte forkSide;
+     /* 
+      * the owner that lets us check out safely
       */
-     PMem joinLocs[JOIN_SIZE];
-     int joinHead; //which location is the one to join
+     int expectedOwner;
+     /* 
+      * idx of the set to join
+      */
+     int joinLoc;
 
      /* 
       * The clean pointer for the pStack this capsule is working on, and
@@ -33,7 +35,7 @@ typedef struct {
      PMem cntHolderClean;
      PMem callHolderClean;
 
-     /* pp
+     /* 
       * soft whoAmI, set at the scheduler->usercode edge. use getter
       * (getProcIDX)
       */
@@ -42,6 +44,9 @@ typedef struct {
 
 Capsule quickGetInstalled(void);
 int getProcIDX(void); //soft whoAmI, allows for hardfault steals
+
+//use with pcall, returns void takes void. sets swai from hard
+Capsule resetWhoAmI(void);
 
 /* control flow declarations */
 typedef Capsule (*funcPtr_t)(void); 
@@ -70,3 +75,5 @@ extern PMem currentlyInstalled;
  * should be what is returned to the trampoline code
  */
 Capsule makeCapsule(funcPtr_t);
+
+void trampolineCapsule(void);

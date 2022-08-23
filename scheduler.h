@@ -72,13 +72,6 @@ Capsule singleJobPush(void);
 Capsule scheduler(void);
 
 /*
- * tell the kernel to schedule other stuff first.
- *
- * TODO this doesn't seem like the right place for this, but idk where to put it
- */
-void yield(void); 
-
-/*
  * Pick a target to steal from, returns the procIdx of the victim
  */
 int getVictim(void);
@@ -91,14 +84,9 @@ int getBot(int);
 
 /* declaration of WS-deques as 2d-array */
 
-/*
- * These are pointers to persistent memory, but they are only visible
- * to the process that initializes them (TODO confirm), so they can be
- * regular pointers, initializeed at process start.
- */
+/* this is a PM pointer to an array of length NUM_PROC, each is array
+ * of Jobs (STACK_SIZE)*/
+PMem deques; //is PM array of size: [NUM_PROC][STACK_SIZE]. TODO init
 
-/* this is a PM pointer to an array of PMem objects that are Jobs */
-PMem* deques; //is PM array of size: [NUM_PROC][STACK_SIZE]. TODO init
-
-int* tops; //PM array of top indicies size NUM_PROC
-int* bots; //PM array of top indicies size NUM_PROC
+PMem tops; //PM array of top indicies size NUM_PROC
+PMem bots; //PM array of top indicies size NUM_PROC

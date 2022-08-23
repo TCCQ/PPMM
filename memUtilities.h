@@ -1,21 +1,5 @@
 #include <sys/types.h> //for size_t
 
-
-
-/* Dynamic Emphemerial Memory Managament */
-
-/*
- * Attempts to allocate a chunk of ephemeral process local memory of
- * the given size and returns a pointer to the first byte of it
- */
-void* EMalloc(size_t);
-
-/*
- * Called on a pointer returned from EMalloc, returns the dynamic
- * memory after use
- */
-void EMfree(void*);
-
 /* Persistent Memory */
 
 /*
@@ -37,49 +21,78 @@ void EMfree(void*);
 
 typedef struct {unsigned int offset; unsigned int size} PMem;
 
+/* 
+ * consider adding a new public header as a subset of this, cause most
+ * of this is not stuff the user needs
+ */
+
+/* 
+ * These are the definitions for the dynamic memory table
+ */
+struct entryTag { 
+     int owner;
+     boolean isGrabbed;
+     byte padding[8-sizeof(int)-sizeof(boolean)]; 
+};
+
+typedef struct {
+     PMem data; //offset and size
+     boolean inList; //is this active part of the table (alloc'd or free)
+     struct entryTag tag; //atomically swappable ownership
+     int next; //linked list downlink, see comments about inactive entries
+     boolean isInUse; //is this block allocated or free
+} entry;
+
+
+/* Dynamic Emphemerial Memory Managament */
+
+/*
+ * Attempts to allocate a chunk of ephemeral process local memory of
+ * the given size and returns a pointer to the first byte of it
+ */
+void* EMalloc(size_t);
+
+/*
+ * Called on a pointer returned from EMalloc, returns the dynamic
+ * memory after use
+ */
+void EMfree(void*);
+
+
+#ifndef CAPSULE_INCLUDED
+#include "capsule.h"
+
 /* see above */
 (volatile void)* PMAddr(PMem);
 
-/* Dynamic Persistent Memory Mangagement */
+/* Dynamic Persistent Memory Management */
 
 /*
- * Returns a pointer to the first byte of a region of the passed size
- * in persistent memory. This memory region can be accessed by the
- * calling and all other processes. If memory is allocated, the
- * process faults, and the alloc is called again, so long as the
- * requested size remains the same and no other alloc calls were made
- * from this process, the same region in memory will be returned. This
- * call is idempotently safe.
+ * persistent function call, use with pcall. takes one argument, an
+ * int, the size of the desired chunk of memory. It returns a PMem to
+ * said memory, or spins until said memory is free.
  *
- * (TODO ENSURE THAT I CHECK PROCESSIDX INSIDE, OR SOMEHOW ENSURE NO
- * MEMLEAKS OTHERWISE)
+ * THIS CALL WILL SPIN FOREVER IF NO MEMORY IS AVAILABLE.
  */
-PMem PMalloc(size_t);
+Capsule PMalloc(void);
 
-/* Releases the dynamic chunk of persistent memory at the passed
- * address given by a prior call to PMalloc. Can be safely called on a
- * pointer that has already been freed, e.g. if it was freed and then
- * the process faulted and freed again.
- *
- * (TODO ENSURE THAT PROCESSES THAT ARE NOT THE ALLOCATING PROCESS CAN
- * SAFELY FREE)
+/*
+ * persistent function call, use with pcall. takes a PMem, which was
+ * identical to the one returned by a prior successful call to
+ * PMalloc. Releases said memory back into the pool for someone else
+ * to use. Returns nothing
  */
-void PMfree(PMem);
+Capsule PMfree(void);
 
-/* flushes the changes to persistent memory out to ensure that other
+/*
+ * flushes the changes to persistent memory out to ensure that other
  * processes can see them
+ *
+ * TODO. this should be an ephemeral call probably? unclear
  */
 void PMflush(void);
 
-/* A wrapper for everything you would normally use getProcId for. A
- * process after a fault (and thus a unix process restart) may not
- * have the same real pid, so using this should give a low
- * integer(sequential probably) that is which process (in the sense
- * the model uses the word) the caller is. Also for use in finding
- * which stack/local state/reset pointer/etc is the given
- * process's
- */
-int getProcIDX(void);
+#endif
 
 /* Persistent Memory Actions */
 
@@ -90,15 +103,15 @@ int getProcIDX(void);
  * that the data type is 1,2,4,8 bytes long, otherwise atomiticity is
  * not guaranteed
  *
- * TODO consider adding asserts here that confirm that value is the
+ * consider adding asserts here that confirm that value is the
  * right size.
  *
- * TODO fixed the no return value with a inline block scope which
+ * fixed the no return value with a inline block scope which
  * should prevent it? not clear could use a overkill with a ({})
  * enclosure ("statement expression" I think), and have the line be 1;
  * or 0;, have it return something constant. idk if I need that though
  *
- * TODO consider including a memsync or a flush here just to be 100%
+ * consider including a memsync or a flush here just to be 100%
  * sure. idk how shared memory normally works
  */
 #ifndef CAM

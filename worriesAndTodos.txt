@@ -59,3 +59,15 @@ kinds of faults
 
 proposed solution:
 hard faults are procs dying, and soft faults are triggered / simulated internally with a signal handler. Investigate
+
+----------------------------------------------------------------------
+fix cam job and comparejob to be safe
+
+----------------------------------------------------------------------
+investigate nested compile time function declaration.
+
+I'd really like to do
+
+pcall(&func, {int a; pPopArg(a), if (a) pret(true); else pret(false);})
+
+but idk if that really works. the block thing would need to be cast to funcPtr_t but it should pass the type check with the macros expanded

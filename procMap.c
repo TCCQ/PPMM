@@ -5,15 +5,9 @@
 #include <sys/stat.h> //checking if file exists
 #include "memUtilities.h"
 #include "assertion.h"
-#include "scheduler.h" //for yield, but this muddies dependencies and
-		       //nessesity order TODO
-/* 
- * TODO vis-a-vis yielding, I think that is not the solution anyway,
- * and I am not sure we want to be looping anyway, I think we have
- * settled on just having procs die and stay dead for hard faults, and
- * have soft faults be signal driven (at least for now)
- */
 #include "typesAndDecs.h"
+#include "procMap.h" //just the struct
+
 /*
  * This should declare the internals needed to map processes to indices.
  *
@@ -30,21 +24,6 @@
  *
  * maybe have the idx passed as an arg to the process? then a long
  * time without resurrection is "hard"? not very reliable
- *
- * TODO make a header for this file, specifically for hardWhoAmI
- */
-
-struct procData {
-     pid_t pid; 
-};
-/* 
- * TODO consider if I want to be caching the live status. The check is
- * certainly expensive, what with string comparisons and file
- * accesses, but I don't see a very clean way to cache it. This can
- * wait, as isLive is a wrapper
- *
- * TODO this is a struct just in case I want to edit it later, if not
- * consolidate to just pid_t in the functions below
  */
 
 
@@ -160,17 +139,17 @@ pid_t getMyPid(void) {
      return getpid(); //os call, can't fail
 }
 
-//only really meaningful if you are already somewhere in the table. TODO consider error message here
 int hardWhoAmI(void) {
      pid_t myPid = getMyPid();
      for (int i = 0; i < NUM_PROC; i++) {
 	  if (mapGet(i)->pid == myPid) return i;
      }
+     rassert(0, "called hardWhoAmI without being in the table.");
      return -1;
 }
 
 //need getIdx, should hang in check-yield loop if none are available (could exit ig)
-void getIdx(void) {
+int getIdx(void) {
      boolean quit = false;
      while (!quit) {
 	  for (int i = 0; i < NUM_PROC; i++) {
@@ -182,14 +161,8 @@ void getIdx(void) {
 		    CAM(&(loc->pid), copy.pid, myPid);
 		    if (loc->pid == myPid) {
 			 //it worked, get to work
-			 trampolineCapsule();
-			 quit = true;
-			 /*
-			  * during the first init, the setup process should
-			  * properly initialize all the currently installed
-			  * capsules to be the scheduler, except perhaps
-			  * one that pushes the first job. TODO
-			  */
+			 return i;
+			 
 		    } //failed cam, keep moving
 	       }
 	  }

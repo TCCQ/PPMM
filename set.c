@@ -103,12 +103,13 @@ Capsule gotSet(void) {
 
 /* 
  * takes no args, jumps to scheduler or cnt depending on order, reach
- * via pcnt (TODO macro?)
+ * via pcnt 
  */
 Capsule join(void) {
-     int mySet = /* TODO where is the set stored */;
-     byte mySide = /* TODO where is the bit from fork stored */;
-     int expectedOwner = /* TODO where is that stored? */;
+     Capsule installed = quickGetInstalled();
+     int mySet = installed.joinLoc;
+     byte mySide = installed.forkSide;
+     int expectedOwner = installed.expectedOwner;
      pPushCntArg(mySide);
      pPushCntArg(expectedOwner);
      pPushCntArg(mySet);

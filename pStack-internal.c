@@ -11,8 +11,8 @@
 
 /* 
  * These are the equivalent of dereferencing the clean versions (in
- * the capsule) once. They are reset on fault (TODO) and are read from
- * on capsule turnover
+ * the capsule) once (TODO is that right? confirm with code). They are
+ * reset on fault (TODO) and are read from on capsule turnover
  *
  * Their sizes are not the # of bytes after that are valid, but the #
  * from the start of the holder 
@@ -35,9 +35,6 @@ PMem callHolder;
  * this because they need to be cross accessible for hard fault steals
  *
  * again real def here, others are extern
- *
- * TODO the holders need to be 2*(JOB_ARG_SIZE + sizeof(funcPtr_t))
- * sized at least (or 3? not sure)
  */
 
 PMem continuationHolders; 
@@ -82,8 +79,7 @@ void ppaInternal(void* output, const int size) {
  * so the dirty versions are set. the dirty stack should be right
  * above caller of the caller of this. (where to return to when I am
  * done), there should *NOT* be any remnants of the pre-cnt capsule on
- * the stack. the dirty stack needs to be pushed as an argument so
- * that it is preserved on fault. TODO think about ifthat is the best solution
+ * the stack.
  *
  * The top element that is copied at this stage is the funcPtr_t of
  * the continuation. This should be popped by this code and returned

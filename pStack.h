@@ -28,6 +28,8 @@
 #define pret(arg) ppcnaInternal(&arg, sizeof(arg)); \
      return makeCapsule(&pRetInternal)
 
+#define pretvoid return makeCapsule(&pRetInternal);
+
 //these have to be defined and not calls cause they have to use the trampoline system
 
 

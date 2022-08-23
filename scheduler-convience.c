@@ -64,28 +64,17 @@ boolean isTaken(Job in) {
 }
 
 /*
- * we need a comparison for capsules, I am making it local because
- * that is not something the user should be doing
- *
- * TODO should I be doing that? where do I use CompareJob?
- *
- * I think with the forkpath move, I don't need this? 
- */
-boolean CompareCapsule(Capsule a, Capsule b) {
-     if (a.rstPtr != b.rstPtr || a.joinHead != b.joinHead || a.forkPath != b.forkPath) {
-	  return false
-     }
-     //TODO check pStack state, this sort of comparison is inadvisable
-     return true;
-}
-
-/*
  * Comparison, == but for jobs, 1(true) for equal, 0(false) to !=
  *
  * if we move forkpath to Job, compare that instead, as that should be unqiue
  * to a thread of execution, so values can be repeated, but they can
  * never coexist at the same time with another of the same value in
  * two valid Jobs (alive and not stolen and all, in use basically)
+ *
+ * currently compares all the job stuff, and if those all match then
+ * compare the side and join set of the capsules. those are non-unique
+ * over the whole program, but should never (I think?) be the same at
+ * the same time.
  */
 boolean CompareJob(Job a, Job b) {
      if (a.id == b.id && a.counter == b.counter) {
@@ -93,7 +82,7 @@ boolean CompareJob(Job a, Job b) {
 	       if (a.target == b.target) return true;
 	       else return false;
 	  } else {
-	       if (CompareCapsule(a.work, b.work)) return true;
+	       if (a.work.joinLoc == b.work.joinLoc && a.work.forkSide == b.work.forkSide) return true;
 	       else return false;
 	  }
      } else return false;
@@ -140,7 +129,6 @@ void yield(void) {
  */
 int getVictim(void) {
      return rand() % NUM_PROC;
-     //TODO do srand(time(NULL)); somewhere in init
 }
 
 /*

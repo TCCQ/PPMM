@@ -7,38 +7,25 @@
 #include "pStack-internal.h"
 #include "typesAndDecs.h"
 
-/* the deque that this process owns and can push to, is a ptr to PM */
-Job* localDeque; 
-int* bot; 
-int* top; 
-int localIdx; 
+#define localDeque ( (Job*)(((PMem*)PMAddr(deques) + getProcIdx()) )
+#define bot ( (int*)(((PMem*)PMAddr(bots) + getProcIdx()) )
+#define top ( (int*)(((PMem*)PMAddr(tops) + getProcIdx()) )
+#define localIdx ( getProcIdx() )
 /*
  * These should not be confused with the declarations at the bottom of
  * scheduler.h. Those are the sets of stacks, tops, and bottoms of
- * everyone. These are said things for this process. bot here is
+ * everyone. These are the ones  for this process. bot here is
  * equivalent to `bots[localIdx]` for convience
  * 
- * localDeque: pointer to STACK_SIZE deque. TODO init somewhere
+ * localDeque: pointer to STACK_SIZE deque. 
  * 
  * bot/top: PM pointers to top and bottom of the stack. there is an
  * array declared in scheduler.h to check other procs
  *
- * localIdx: quick reference to who this process is. TODO should be
- * moved so that it can be init in the init file
+ * localIdx: quick reference to who this process is. 
  *
- * these are pointers to PM that are visible only to this process. as
- * such, they can be safely converted to regular pointers and
- * initialized at the start of the process.
- *
- * TODO I think the above is true, but I need to make PMem objects out
- * of derived references to these pointers sometimes so how should I
- * do that? I can't make a PMem constructor that takes a void* and
- * calculates relative to the root ptr, because ptr subtraction is not
- * defined in general. I think these have to be PMem references.
- * ponder
- *
- * consider making these definitions for lookups with soft whoAmIs, so
- * when scheduling code is stolen it works properly
+ * definitions use lookups with soft whoAmIs, so when scheduling code
+ * is stolen it works properly
  */
 
 /*
@@ -116,13 +103,6 @@ Capsule pushBCnt (void) {
 	  CAMJob(&localDeque[bottomCopy], currentJobCopy, replacement); //one half is done
 
 	  /* 
-	   * TODO we need to set the job info in the local entry, that
-	   * is now acting as more than just a flag for checking the
-	   * currently installed capsule. It needs to fill the
-	   * forkpath and whatnot now, because that is getting moved
-	   * from capsule to Job. Also make sure to update the counter
-	   * when doing that
-	   *
 	   * this is (indirectly) a scheduler-usercode boundary
 	   */
 	  for (int i = 0; i < right.argSize; i++) {
@@ -161,6 +141,10 @@ Capsule pushBCnt (void) {
  * It takes the following, (this is the order that they are
  * popped in):
  *
+ * size of join args
+ * args
+ * join funcPtr
+ *
  * the size of the left branch's starting arguments
  * said args
  * the left starting funcPtr
@@ -169,23 +153,50 @@ Capsule pushBCnt (void) {
  * args
  * right funcPtr
  *
- * size of join args
- * args
- * join funcPtr
- *
  * then this code will pop and divide these into Jobs *not* capsules,
- * even the join one. The set should contain a job and not a capsule.
- * (TODO) That way when the join is complete it pushes a new job
- * rather than continuting without returning to the scheduler. This
- * way we can avoid packaging args within capsules, but store args
- * outside of the pStack (in the job in this case)
+ * even the join one. The set contains a job and not a capsule. That
+ * way when the join is complete it pushes a new job rather than
+ * continuting without returning to the scheduler. This way we can
+ * avoid packaging args within capsules, but store args outside of the
+ * pStack (in the job in this case)
  */
 Capsule fork(void) {
-     int leftSize, rightSize, joinSize;
+     int joinSize;
+     byte joinArgs[JOB_ARG_SIZE];
+     funcPtr_t joinPtr;
+     byte* output;
+
+     pPopArg(joinSize);
+     byte* output = joinArgs+joinSize;
+     for (int i = 0; i < joinSize; i++) {
+	  pPopArg(*(--output)); //copy into local args from stack, backwards
+     }
+     pPopArg(joinPtr); //done with join
+
+
+     Job joinJob = newEmptyWithCounter(0); //counters will be set later
+     joinJob.work = joinCap;
+     for (int i = 0; i < joinSize; i++) {
+	  joinJob.args[i] = joinArgs[i]; //copy into job struct
+     }
+     joinJob.argSize = joinSize; //finished with join Job struct
+
+     /* 
+      * now the join continuation job is completely set, we can get a
+      * set location now. the rest of the arguments go through
+      */
+     pPushCalleeArg(joinJob);
+     pcall(&getAndInitSet, &forkCnt);
+}
+
+Capsule forkCnt(void) {
+     int setIdx;
+     pPopArg(setIdx);
+     
+     int leftSize, rightSize;
      byte leftArgs[JOB_ARG_SIZE];
      byte rightArgs[JOB_ARG_SIZE];
-     byte joinArgs[JOB_ARG_SIZE];
-     funcPtr_t leftPtr, rightPtr, joinPtr;
+     funcPtr_t leftPtr, rightPtr;
      byte* output;
      
      pPopArg(leftSize);
@@ -202,12 +213,6 @@ Capsule fork(void) {
      }
      pPopArg(rightPtr); //done with right
 
-     pPopArg(joinSize);
-     byte* output = joinArgs+joinSize;
-     for (int i = 0; i < joinSize; i++) {
-	  pPopArg(*(--output)); //copy into local args from stack, backwards
-     }
-     pPopArg(joinPtr); //done with join
 
      //the arguments are all popped and filled now
 
@@ -219,13 +224,11 @@ Capsule fork(void) {
      Capsule joinCap = makeCapsule(joinPtr);
 
      
-     leftCap.forkPath = (quickGetInstalled.forkPath << 1) & (~1); //mark left fork
-     leftCap.joinLocs[quickGetInstalled.joinHead+1] = joinSet;
-     leftCap.joinHead = quickGetInstalled.joinHead+1;
+     leftCap.forkSide = 0; //mark left fork
+     leftCap.joinLoc = setIdx;
 
-     rightCap.forkPath = (quickGetInstalled.forkPath << 1) | 1; //mark right fork
-     rightCap.joinLocs[quickGetInstalled.joinHead+1] = joinSet;
-     rightCap.joinHead = quickGetInstalled.joinHead+1;
+     rightCap.forkSide = 1;
+     rightCap.joinLoc = setIdx;
 
      //joinCap doesn't need edits, because it's path is the same is this cap's, so makeCap should be fine
 
@@ -243,19 +246,12 @@ Capsule fork(void) {
      }
      rightJob.argSize = rightSize; //finished with right Job struct
      
-     Job joinJob = newEmptyWithCounter(0); //counters will be set later
-     joinJob.work = joinCap;
-     for (int i = 0; i < joinSize; i++) {
-	  joinJob.args[i] = joinArgs[i]; //copy into job struct
-     }
-     joinJob.argSize = joinSize; //finished with join Job struct
 
      //now the Jobs are all set
 
      pPushCntArg(leftJob);
      pPushCntArg(rightJob);
-     pPushCalleeArg(joinJob);
-     pcall(&getAndInitSet, &pushBottom);
+     pcnt(&pushBottom);
 }
 
 /* forward decs for readability */
@@ -275,7 +271,10 @@ Capsule stealLoop(void) {
 
      pPushCntArg(getVictim);
      pPushCntArg(getCounter(localDeque[*bot]));
-     pPushCntArg(/* TODO this should be a PMem for the output location, see top of file*/);
+     pPushCntArg(((Job*) *((PMem*)(PMAddr(deques)) + getProcIdx()) + *bot));
+     /*
+      * this should be the bottom of the stack, hopefully.
+      */
      pcnt(&steal);
 }
 
@@ -516,7 +515,7 @@ Capsule sjpCopy(void) {
      /* 
       * this is only a cam so that it is atomic properly. See CAMJob description
       */
-     pret((byte)0); //should I return if the cam worked? TODO
+     pretvoid; 
 }
 
 Capsule sjpCnt(void) {
@@ -524,8 +523,6 @@ Capsule sjpCnt(void) {
      int botCopy;
      int oldCounter;
      Job new;
-     byte waste;
-     pPopArg(waste); //ignore
      pPopArg(oldCounter);
      pPopArg(old);
      pPopArg(botCopy);
@@ -537,17 +534,18 @@ Capsule sjpCnt(void) {
      /* 
       * so now we have the toPush job followed by a copy of the
       * previous job both at the bottom of the deque. Both are local
-      * (TODO is this necessary?) now we go to scheduler which will
-      * pop the old one and start on the new one, thus performing a
-      * job continuation
+      * now we go to scheduler which will pop the old one and start on
+      * the new one, thus performing a job continuation
       */
      pcnt(&scheduler);
 }
 
 /*
  * main loop, looks for, finds, and executes work via continuations. takes no arguments
+ *
+ * (this and below)
  */
-Capsule scheduler(void) {
+Capsule sCnt(void) {
      localDeque[*bot] = makeEmpty(localDeque[*bot]);
      pcnt(&popBottom);
      /*
@@ -556,3 +554,8 @@ Capsule scheduler(void) {
       * functions are decendents of that
       */
 }
+
+Capsule scheduler(void) {
+     pcall(&resetWhoAmI, &sCnt);
+}
+

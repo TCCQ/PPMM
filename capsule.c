@@ -9,16 +9,13 @@ PMem currentlyInstalled; //see capsule.h
 Capsule makeCapsule(funcPtr_t instructions) {
      Capsule output;
      output.rstPtr = instructions;
-     
-     /*
-      * by default should copy the fork history from the caller, this
-      * can be reset as nessiary
-      */
-     for (int i = 0; i < JOIN_SIZE; i++) {
-	  output.joinLocs[i] = (*currentlyInstalled)->joinLocs[i];
-     }
-     output.joinHead = currentlyInstalled->joinHead;
 
+     Capsule installed = quickGetInstalled();
+     
+     output.joinLoc = installed.joinLoc;
+     output.forkSide = installed.forkSide;
+     output.expectedOwner = installed.expectedOwner;
+     
      /* 
       * make the clean version match the dirty version
       *
@@ -54,6 +51,17 @@ int getProcIDX(void) {
      return quickGetInstalled.whoAmI;
 }
 
+/* 
+ * sets soft whoamI from hard. edits current. use with pcall, takes
+ * and returns nothing
+ */
+Capsule resetWhoAmI(void) {
+     //same as quick get, but edit instead of return
+     int hardWhoAmI = hardWhoAmI();
+     PMem myPointer = ( (PMem*)PMAddr(currentlyInstalled) )[hardWhoAmI];
+     ( (Capsule*) PMAddr(myPointer) )->whoamI = hardWhoAmI;
+     pretvoid;
+}
 
 /* 
  * this is a true process local variable. it is a convience pointer to
@@ -84,9 +92,6 @@ PMem installedSwap;
  * starting job and an job that returns immediately. you might be able
  * to use the scheduler instead of a job that returns immediately.
  * 
- * TODO this needs to be declared somewhere internally visible so the
- * main loop can start. maybe in some seperate initialization header?
- *
  * TODO ensure the atomics writes work properly here
  */
 void trampolineCapsule(void) {

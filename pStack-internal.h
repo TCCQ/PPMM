@@ -24,7 +24,6 @@ extern PMem pStacks;
 #define myStack (( (PMem*)PMAddr(pStacks) )[getProcIDX()])
 #define myCntHolder (( (PMem*)PMAddr(continuationHolders) )[getProcIDX()])
 #define myCalleeHolder (( (PMem*)PMAddr(calleeHolders) )[getProcIDX()])
-//TODO idk if this is enough, decide where do to idx indirection for hardfault steals
 
 
 void ppcaaInternal(void*, int); //pushing a callee arg
