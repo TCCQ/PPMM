@@ -63,7 +63,7 @@ void EMfree(void*);
 #include "capsule.h"
 
 /* see above */
-(volatile void)* PMAddr(PMem);
+void* PMAddr(PMem);
 
 /* Dynamic Persistent Memory Management */
 

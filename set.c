@@ -1,5 +1,9 @@
 #include "set.h"
+
+#ifndef CAPSULE_INCLUDED
 #include "capsule.h"
+#endif
+
 #include "flow.h" //join declaration
 #include "memUtilities.h"
 #include "procMap.h" //hard who am I
@@ -8,7 +12,7 @@
 #include "typesAndDecs.h"
 
 /* 
- * TODO init, points to a SET_POOL_SIZE array of sets in PM
+ * points to a SET_POOL_SIZE array of sets in PM
  */
 PMem setPool;
 

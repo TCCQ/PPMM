@@ -1,4 +1,4 @@
-#include "memUtilites.h"
+#include "memUtilities.h"
 #include "pStack.h"
 #include "capsule.h"
 #include "typesAndDecs.h"
@@ -15,10 +15,11 @@ PMem memTable;
  * iterating over the active section of the table. Null downlinks
  * should link back to the original (value of 0).
  *
- * TODO init, all should start with {_, no, {0,no}, 0, no} except for
+ * all should start with {_, no, {0,no}, 0, no} except for
  * the initial which should start with {{0,DYNAMIC_POOL_SIZE}, yes,
  * {0, no}, 0, no}.
  */
+
 
 /* convenience functions for table management */
 
@@ -100,6 +101,7 @@ Capsule mReleaseOrginal(void);
 
 /* 
  * go through and try to merge contiguous free memory blocks
+ *
  */
 Capsule merge(void) {
      pPushCntArg((int)0);
@@ -118,6 +120,12 @@ Capsule mLoop(void) {
      }
      
      entry* interest = quickEntryGet(idx);
+
+     if (interest->next == 0) {
+	  //we have looped back to the start
+	  pcnt(&PMalloc);
+     }
+     
      if (interest->tag.isGrabbed || interest->isInUse) {
 	  pPushCntArg(interest->next);
 	  pcnt(&mLoop);
@@ -242,6 +250,11 @@ Capsule allocatingLoop(void) {
      
      entry* interest = quickEntryGet(idx);
 
+     if (interest->next == 0 && idx != 0) {
+	  //catches loop back, but NOT loop back with one entry
+	  pcnt(&merge);
+     }
+     
      if (interest->tag.isGrabbed) {
 	  //someone is working
 	  pPushCntArg(interest->next);
@@ -298,6 +311,12 @@ Capsule allocatingPostGrab(void) {
 	       
 	  } else {
 	       //too small for us, release and move on
+
+	       if (idx == 0 && interest->next == 0) {
+		    //there is one entry and it is too small
+		    rassert(0, "not enough dynamic memory for a some single alloc");
+	       }
+	       
 	       pPushCntArg(desiredSize);
 	       pPushCntArg(interest->next);
 	       pPushCalleeArg(idx);

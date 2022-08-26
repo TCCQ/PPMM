@@ -11,8 +11,8 @@
 //new empty with a set counter
 Job newEmtpyWithCounter(int c) {
      Job out;
-     out.id = emptyId;
-     out.counter = c;
+     out.tag.id = emptyId;
+     outtag..counter = c;
      return out;
 }
 
@@ -20,47 +20,47 @@ Job newEmtpyWithCounter(int c) {
  * these make a copy of the passed job and change the job type. They also increment the counter
  */
 Job makeEmpty(Job in) {
-     in.id = emptyId;
-     in.counter++;
+     in.tag.id = emptyId;
+     in.tag.counter++;
      return in;
 }
 Job makeLocal(Job in) {
-     in.id = localId;
-     in.counter++;
+     in.tag.id = localId;
+     in.tag.counter++;
      return in;
 }
 Job makeScheduled(Job in) {
-     in.id = scheduledId;
-     in.counter++;
+     in.tag.id = scheduledId;
+     in.tag.counter++;
      return in;
 }
 Job makeTaken(Job in, const Job* targetJob, int counterCopy) {
-     in.id = takenId;
+     in.tag.id = takenId;
      in.target = targetJob;
-     in.counter = counterCopy;
+     in.tag.counter = counterCopy;
      return in;
 }
 
 /* getters */
 int getCounter(Job in) {
-     return in.counter;
+     return in.tag.counter;
 }
 int getId(Job) {
-     return in.id;
+     return in.tag.id;
 }
 
 /* dumb checks, boolean typedef is unsigned char in scheduler.h */
 boolean isEmpty(Job in) {
-     return in.id == emptyId;
+     return in.tag.id == emptyId;
 }
 boolean isLocal(Job in) {
-     return in.id == localId;
+     return in.tag.id == localId;
 }
 boolean isScheduled(Job in) {
-     return in.id == scheduledId;
+     return in.tag.id == scheduledId;
 }
 boolean isTaken(Job in) {
-     return in.id == takenId;
+     return in.tag.id == takenId;
 }
 
 /*
@@ -77,7 +77,7 @@ boolean isTaken(Job in) {
  * the same time.
  */
 boolean CompareJob(Job a, Job b) {
-     if (a.id == b.id && a.counter == b.counter) {
+     if (a.tag.id == b.tag.id && a.tag.counter == b.tag.counter) {
 	  if (isTaken(a)) {
 	       if (a.target == b.target) return true;
 	       else return false;
@@ -94,23 +94,22 @@ boolean CompareJob(Job a, Job b) {
  *
  * TODO need to cam id and counter, but Capsules are too big to cam.
  *
- * I need that if the cam succeeds then the Job is in a defined and
- * complete state as if the whole thing was cam'd. however if you
- * write capsule after cam then if the capsule faults then it is an
- * issue. If you write it before, then someone else could also write
- * it then the you succeed in the cam and they fail, resulting in your
- * type but their work.
+ * This is not a complete solution, but it's a start. It would be safe
+ * if we could cam id, counter, and target all at once, but the target
+ * needs to be a PMem, which is 8 bytes by itself.
  *
- * the capsule is only changed when switching to a scheduled capsule,
- * or when a new local entry is made for a stolen job. so perhaps it
- * could only be written then? scheduled jobs are only made from local
- * jobs, which does not change their capsule (CONFIRM IN SCHEDULER
- * CODE), and local jobs are only reached from empty states. So I
- * think only the owner of a deque will ever be writing capsules, so
- * it is safe to write the capsule first and then cam the id and
- * counter. use a substruct to do both at once. TODO CONFIRM WITH CHARLIE
+ * currently unsafe under adversarial scheduling
  */
-void CAMJob(Job*, Job, Job);
+void CAMJob(Job* loc, Job old, Job new) {
+     CAM(&(loc->target), old.target, new.target);
+     if (loc->target.offset == new.target.offset) {
+	  //first cam worked
+	  CAM(&(loc->tag), old.tag, new.tag);
+     } else {
+	  //some one else moved in
+	  return;
+     }
+}
 
 
 /*

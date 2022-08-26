@@ -71,3 +71,9 @@ I'd really like to do
 pcall(&func, {int a; pPopArg(a), if (a) pret(true); else pret(false);})
 
 but idk if that really works. the block thing would need to be cast to funcPtr_t but it should pass the type check with the macros expanded
+
+----------------------------------------------------------------------
+
+job cams change type, counter, and target (if taken), write a sub struct that is cammable and swap atomically with that. args should not change during cams.
+
+for job continuation, make double sized jobs w/ 1/2 as scratch. write to scratch and then swing which half is in use. 

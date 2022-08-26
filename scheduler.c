@@ -52,7 +52,12 @@ void helpThief(int victimProcIdx) {
 	   * the counter of the entry at the time of the steal
 	   */
 	  CAM(&top, topCopy, topCopy+1);
-	  foreignJobCopy.target.work = foreignJobCopy.work; //copy the initial capsule to the new target
+	  foreignJobCopy.target.work = foreignJobCopy.work;
+	  foreignJobCopy.target.argSize = foreignJobCopy.argSize;
+	  for (int i = 0; i < foreignJobCopy.argSize; i++) {
+	       foreignJobCopy.target.args[i] = foreignJobCopy.args[i];
+	  }
+          //copy the initial capsule to the new target
      }
 }
 
@@ -99,9 +104,17 @@ Capsule pushBCnt (void) {
 	  //now we have two local entries
 	  
 	  Job replacement = makeScheduled(left);
-	  replacement.counter = currentJobCopy.counter+1; 
-	  CAMJob(&localDeque[bottomCopy], currentJobCopy, replacement); //one half is done
+	  replacement.counter = currentJobCopy.counter+1;
+	  Job* loc = &localDeque[bottomCopy];
 
+	  CAMJob(loc, currentJobCopy, replacement); 
+	  loc.argSize = replacement.argsSize;
+	  for (int i = 0; i < loc.argSize; i++) {
+	       loc.args[i] = replacement.args[i];
+	  }
+	  //one half is done
+
+	  
 	  /* 
 	   * this is (indirectly) a scheduler-usercode boundary
 	   */
@@ -479,7 +492,6 @@ Capsule popBCnt(void) {
 
 
 Capsule sjpCnt(void); //forward dec
-Capsule sjpCopyJob(void);
 /* 
  * takes a job, basically a job continuation swapping mechanism
  */
@@ -489,33 +501,7 @@ Capsule singleJobPush(void) {
      pPushCntArg(bottomCopy);
      pPushCntArg(localDeque[bottomCopy]);
      pPushCntArg(getCounter(localDeque[bottomCopy]));
-     
-     pPushCalleeArg(bottomCopy);
-     pPushCalleeArg(localDeque[bottomCopy]);
-     pPushCalleeArg(localDeque[bottomCopy+1]);
-     pPushCalleeArg(getCounter(localDeque[bottomCopy+1]));
-     pcall(&sjpCopyJob, &spjCnt);
-}
-
-Capsule sjpCopy(void) {
-     int botCopy;
-     Job replacement;
-     int copiedOverCounter;
-     Job copiedOver;
-     pPopArg(copiedOverCounter);
-     pPopArg(copiedOver);
-     pPopArg(replacement);
-     pPopArg(botCopy);
-
-     *bot = botCopy+1; //allocated a new job
-
-     replacement.counter = copiedOverCounter+1;
-     replacement.id = localId; //make local
-     CAMJob(&(localDeque[*bot]), copiedOver, replacement);
-     /* 
-      * this is only a cam so that it is atomic properly. See CAMJob description
-      */
-     pretvoid; 
+     pcnt(&spjCnt);
 }
 
 Capsule sjpCnt(void) {
@@ -526,25 +512,36 @@ Capsule sjpCnt(void) {
      pPopArg(oldCounter);
      pPopArg(old);
      pPopArg(botCopy);
-     pPopArg(new);
+     pPopArg(new); //goes through singleJobPush
 
      new.counter = oldCounter+1;
      new.id = localId;
      CAMJob(&(localDeque[botCopy]), old, new);
-     /* 
-      * so now we have the toPush job followed by a copy of the
-      * previous job both at the bottom of the deque. Both are local
-      * now we go to scheduler which will pop the old one and start on
-      * the new one, thus performing a job continuation
-      */
-     pcnt(&scheduler);
+     //not sure if this needs to be a cam or not?
+     localDeque[botCopy].argSize = new.argSize;
+     for (int i = 0; i < new.argSize; i++) {
+	  localDeque[botCopy].args[i] = new.args[i];
+     }
+
+     //usercode boundary
+     for (int i = 0; i < new.argSize; i++) {
+	  pPushCntArg(new.args[i]);
+     } //could combine loops, but this is more readable
+     pPushCntArg(new.work);
+
+     return makeCapsule(&pStackReset);
 }
 
+Capsule sCnt(void); //forward dec
 /*
  * main loop, looks for, finds, and executes work via continuations. takes no arguments
  *
  * (this and below)
  */
+Capsule scheduler(void) {
+     pcall(&resetWhoAmI, &sCnt);
+}
+
 Capsule sCnt(void) {
      localDeque[*bot] = makeEmpty(localDeque[*bot]);
      pcnt(&popBottom);
@@ -554,8 +551,3 @@ Capsule sCnt(void) {
       * functions are decendents of that
       */
 }
-
-Capsule scheduler(void) {
-     pcall(&resetWhoAmI, &sCnt);
-}
-

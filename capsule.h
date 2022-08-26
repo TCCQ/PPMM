@@ -3,7 +3,7 @@
 
 #include "set.h"
 #include "memUtilities.h"
-#incldue "typesAndDecs.h"
+#include "typesAndDecs.h"
 /*
  * declarations for capsule code
  */
@@ -70,6 +70,7 @@ typedef Capsule (*funcPtr_t)(void);
  */
 extern PMem currentlyInstalled;
 
+extern PMem trampolineQuit;
 /*
  * construct a new capsule with associated overhead. the output of this
  * should be what is returned to the trampoline code

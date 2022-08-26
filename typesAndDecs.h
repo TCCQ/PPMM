@@ -53,6 +53,20 @@ typedef unsigned char byte;
 #define MEMORY_TABLE_SIZE 2048
 //number of entries in table
 
+/* 
+ * setup constants
+ */
+#define SETUP_PATH_LENGTH 128
+#define SETUP_PROJECT_ID 'P'
+
+/* 
+ * total size of the persistent memory
+ *
+ * this calculating method is extremely unsafe, TODO improve
+ */
+#define TOTAL_PMEM_SIZE ((NUM_PROC * ((JOB_ARG_SIZE * 2 *STACK_SIZE) + PSTACK_STACK_SIZE + (2*PSTACK_HOLDING_SIZE))) + (MEMORY_TABLE_SIZE * 16) + DYNAMIC_POOL_SIZE)
+
+
 
 /*
  * tell the kernel to schedule other stuff first.

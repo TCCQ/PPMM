@@ -9,9 +9,11 @@
 //switch to enable runtime assertions, static are always enabled
 #define DO_ASSERT 1
 
-#define rassert(exp, message) #ifdef DO_ASSERT \
-     assert(exp, message) \
-     #endif
+#ifdef DO_ASSERT
+#define rassert(exp, message) assert(exp, message)
+#else
+#define rassert(exp, message) 
+#endif
 
 
 //static assertions, save some typing, requires C11 or later

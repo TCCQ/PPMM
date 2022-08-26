@@ -1,5 +1,9 @@
 #include "scheduler.h"
+
+#ifndef CAPSULE_INCLUDED
 #include "capsule.h"
+#endif
+
 #include "typesAndDecs.h"
 /*
  * This is the small implimentation for binary joins, see fork and

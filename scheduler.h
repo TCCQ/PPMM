@@ -1,4 +1,7 @@
-#include "capsule.h" 
+#ifndef CAPSULE_INCLUDED
+#include "capsule.h"
+#endif
+
 #include "memUtilities.h"
 #include "typesAndDecs.h"
 /* Interally visible stuff for the scheduler code */
@@ -18,14 +21,18 @@ enum JOB_IDS{
      emptyId=0, localId, scheduledId, takenId
 };
 
+struct jobSwappable {
+     unsigned char id;
+     unsigned char counter;
+};
+
 /*
  * this is the type that the deque should be. Not all the fields will
  * have defined values at all times.
  */
 typedef struct {
-     id_t id;
-     counter_t counter;
-     Job* target;
+     struct jobSwappable tag;
+     PMem target; //pointer to single Job
      Capsule work;
      byte args[JOB_ARG_SIZE];
      int argSize;
@@ -37,7 +44,7 @@ Job newEmptyWithCounter(int); //make an empty entry with the counter set
 Job makeEmpty(Job); 
 Job makeLocal(Job);
 Job makeScheduled(Job);
-Job makeTaken(Job, const Job*, int); //takes counter copy too
+Job makeTaken(Job, PMem, int); //takes counter copy too
 /*
  * this copies the first arg and makes it point to the second
  * this also copies the counter value of the output location and stores in in the taken entry
@@ -86,7 +93,7 @@ int getBot(int);
 
 /* this is a PM pointer to an array of length NUM_PROC, each is array
  * of Jobs (STACK_SIZE)*/
-PMem deques; //is PM array of size: [NUM_PROC][STACK_SIZE]. TODO init
+PMem deques; //is PM array of size: [NUM_PROC][STACK_SIZE]
 
 PMem tops; //PM array of top indicies size NUM_PROC
 PMem bots; //PM array of top indicies size NUM_PROC

@@ -1,6 +1,9 @@
 #include <sys/shm.h>
+#include <sys/ipc.h>
+#include <unistd.h>
 #include "typesAndDecs.h"
 #include "setup.h"
+#include "assertion.h"
 #include "memUtilities.h" //PMem and entry
 #include "capsule.h" //Capsule
 #include "scheduler.h" //Job
@@ -14,13 +17,71 @@
  * that an individual process will need 
  */
 
-void* basePointer; //where is the whole pmem chunk mounted?
+byte* basePointer; //where is the whole pmem chunk mounted?
+
+/* 
+ * We are defining this here so that basePointer does not need an
+ * extended scope
+ */
+void* PMAddr(PMem input) {
+     return (void*) basePointer + input,offset; 
+}
 
 /* 
  * this mounts the pmem and sets the base pointer
  */
-void pmemMount(void) {
-     
+void pmemMount(key_t key, boolean generate) {
+     int shmId;
+     if (generate) {
+	  char selfPath[SETUP_PATH_LENGTH];
+	  int size = readlink("/proc/self/exe", selfPath, SETUP_PATH_LENGTH);
+	  if (size == -1) {
+	       rassert(0, "could not get my own path name for setup purposes");
+	  }
+	  selfPath[size] = 0; //unclear if readlink does that?
+	  key_t generatedKey = ftopk(selfPath, SETUP_PROJECT_ID);
+	  if (generatedKey == -1) {
+	       rassert(0, "could not generate a key");
+	  }
+	  key = generatedKey;
+	  
+	  int ret = shmget(, TOTAL_PMEM_SIZE, IPC_CREAT | SHM_HUGETLB | IPC_EXCL);
+	  if (ret == -1) {
+	       rassert(0, "could not create a shared segment, maybe already exists?");
+	  } else {
+	       //creation worked
+	       shmId = ret;
+	  }
+     } else {
+	  //segment already exists, do not create a new one
+	  int ret = shmget(key, TOTAL_PMEM_SIZE, 0);
+	  if (ret == -1) {
+	       rassert(0, "could not get existing shared memory segment. Did you create it?");
+	  } else {
+	       shmId = ret;
+	  }
+     }
+
+     //one way or another, we have a shm segment id now
+     void* atRet = shmat(shmId, NULL, 0);
+     //attach, read and write
+     if ((int)atRet == -1) {
+	  rassert(0, "could not attach the shared memory segment");
+     } else {
+	  basePointer = (byte*) atRet;
+     }
+
+     ret = shmctl(shmId, IPC_RMID, NULL);
+     /* 
+      * marks the segment for deletion, will only happen after all
+      * processes have been detached from it. newly attaching to a
+      * segment marked for deletion is only supported by some linux
+      * versions, and is thus not portable. I am not sure about the
+      * third argument, but I think this command doesn't use it.
+      */
+     if (ret == -1 && errno != EPERM) {
+	  rassert(0, "could not mark the segment for deletion, but it wasn't a permissions issue")
+     }
 }
 
 /* 
@@ -38,6 +99,13 @@ void pmemPartition(void) {
      cursor.offset = 0;
      //set to start of data segment
 
+     /* 
+      * see trampoline for quitting mechanism
+      */
+     cursor.size = sizeof(boolean);
+     extern PMem trampolineQuit = cursor;
+     cursor.offset += cursor.size;
+	  
      /*
       * capsule.h
       * currentlyInstalled:
@@ -114,8 +182,6 @@ void pmemPartition(void) {
      cursor.offset += cursor.size;
      extern PMem pStacks = cursor;
      cursor.offset += cursor.size;
-
-     
      
      /*
       * procMap.h
@@ -152,13 +218,6 @@ void pmemPartition(void) {
      cursor.size = sizeof(entry) * MEMORY_TABLE_SIZE;
      extern PMem memTable = cursor;
      cursor.offset += cursor.size;
-
-     /* 
-      * I also need a section for setting pointers of things that
-      * don't need allocated memory (like the dirty pointer in pStack-internal.c)
-      *
-      * TODO
-      */
 }
 
 /* 
@@ -166,5 +225,115 @@ void pmemPartition(void) {
  * be run exactly one time on the partitioned memory.
  */
 void firstTimeInit(int myIdx) {
+     /* 
+      * memUtilities.c:
+      * memTable
+      * is MEMORY_TABLE_SIZE long on entries, starts will all zeros
+      * except first entry which is {{0,DYNAMIC_POOL_SIZE}, yes,
+      * {0, no}, 0, no}
+      */
+     entry empty;
+     empty.data = {0,0};
+     empty.inList = false;
+     empty.tag.owner = 0;
+     empty.tag.isGrabbed = false;
+     empty.next = 0;
+     empty.isInUse = false;
 
+     extern PMem memTable;
+     entry* table = (entry*)PMAddr(memTable);
+     for (int i = 1; i < MEM_TABLE_SIZE; i++) {
+	  table[i] = empty;
+     }
+
+     empty.data = {0,DYNAMIC_POOL_SIZE};
+     empty.inList = true;
+     //single entry for whole memory block
+     table[0] = empty;
+
+     /* 
+      * procMap.c:
+      * mapping
+      * NUM_PROC of procData structs
+      *
+      * pick some pid that will never be allocated to this process
+      */
+     struct procData empty = {1};
+     extern PMem mapping;
+     struct procData* map = (struct procData*)PMAddr(mapping);
+     for (int i = 0; i < NUM_PROC; i++) {
+	  map[0] = empty;
+     }
+
+     /* 
+      * set.c:
+      * setPool
+      * set to all zeros
+      */
+     Set emptySet;
+     { int i = 0; while (i < sizeof(emptySet)) { *((byte*)&emptySet + i) = 0; } }
+     //clear it
+
+     extern PMem setPool;
+     Set* pool = (Set*)PMAddr(setPool);
+     for (int i = 0; i < SET_POOL_SIZE; i++) {
+	  pool[i] = emptySet;
+     }
+
+     /* 
+      * scheduler.h:
+      * tops/bots
+      * set them all to zero
+      */
+     extern PMem tops, bots;
+     int* ts = (int*)PMAddr(tops);
+     int* bs = (int*)PMAddr(bots);
+     for (int i =0; i < NUM_PROC; i++) {
+	  ts[i] = 0;
+	  bs[i] = 0;
+     }
+
+     /* 
+      * deques
+      * should all be empty with zero counter
+      */
+     extern PMem deques;
+     Job emptyJob = newEmptyWithCounter(0);
+     Job* jobLoc;
+     PMem* individualDeque = (PMem*)PMAddr(deques);
+     for (int p = 0; p < NUM_PROC; p++) {
+	  jobLoc = (Job*)PMAddr(individualDeque[p]);
+	  for (int i = 0; i < STACK_SIZE; i++) {
+	       jobLoc[i] = emptyJob;
+	  }
+     }
+}
+
+/* 
+ * every process needs to run this, whether they are the init process
+ * or not. 
+ */
+void everybodyInit(int hard) {
+     /* 
+      * pStack-internal.c/.h:
+      * *Dirty
+      *
+      * Needs to point to the bottom of the holders
+      */     
+
+     extern PMem pStacks, continuationHolders, calleeHolders,
+	  pStackDirty, cntHolder, callHolder;
+     pStackDirty = *((PMem*)PMAddr(pStacks) + hard);
+     pStackDirty.size = 0;
+     cntHolder = *((PMem*)PMAddr(continuationHolders) + hard);
+     cntHolder.size = 0;
+     callHolder = *((PMem*)PMAddr(calleeHolders) + hard);
+     callHolder.size = 0;
+}
+
+void pmemDetach(void) {
+     int ret = shmdt((void*)basePointer);
+     if (ret == -1) {
+	  rassert(0, "could not detach segment");
+     }
 }

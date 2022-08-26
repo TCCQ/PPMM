@@ -31,8 +31,6 @@ PMem mapping;
 /* 
  * PM pointer to a NUM_PROC long array of procData structs. access via
  * getter
- *
- * TODO init
  */
 
 

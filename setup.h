@@ -1,7 +1,10 @@
+#include <sys/shm.h>
 /* 
  * this mounts the pmem and sets the base pointer
+ *
+ * takes the shared memory key as an argument 
  */
-void pmemMount(void);
+void pmemMount(key_t);
 
 /* 
  * this partitions the mounted memory by setting up all the global pmems that
@@ -19,3 +22,14 @@ void pmemPartition(void);
  * be run exactly one time on the partitioned memory.
  */
 void firstTimeInit(int myIdx);
+
+/* 
+ * local initialization that everybody needs. Takes hard wai
+ */
+void everybodyInit(int hard);
+
+/* 
+ * tell the OS that we are done with the shared memory, on success, we
+ * are free to exit cleanly
+ */
+void pmemDetach(void);

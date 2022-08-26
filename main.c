@@ -2,6 +2,8 @@
  * This is the file that should start everything else.
  */
 #include <stdlib.h> //for rand
+#include <string.h>
+#include <sys/shm.h> //for key_t
 #include "capsule.h"
 #include "typesAndDecs.h"
 #include "setup.h"
@@ -15,12 +17,40 @@
  */
 boolean doInit;
 boolean startingProc;
+boolean generate;
+
+key_t passedKey;
 
 /* 
  * returns the index of the first non-caught arg (args to be passed to
  * usercode). returns 0 if there are no such arguments
  */
 int parseArgs (int ac, char** av) {
+     generate = false;
+     doInit = false;
+     startingProc = false;
+
+     boolean gotKeyOrGenerating = false;
+     for (int i = 0; i < ac; i++) {
+	  if (strcmp(av[i], "-g") == 0) {
+	       generate = true;
+	       gotKeyOrGenerating = true;
+	  } else if (strcmp(av[i], "-i") == 0) {
+	       doInit = true;
+	  } else if (strcmp(av[i], "-s") == 0) {
+	       startingProc = true;
+	  } else if (strcmp(av[i], "-k") == 0) {
+	       //next should be the key number
+	       if (ac <= i+1) rassert(0, "you didn't pass a key");
+
+	       passedKey = stoi(av[i+1]);
+	       gotKeyOrGenerating = true;
+	  } else {
+	       if (!gotKeyOrGenerating) rassert(0, "pass a key or generate one");
+	       return i;
+	  }
+     }
+     if (!gotKeyOrGenerating) rassert(0, "pass a key or generate one");
      return 0;
 }
 
@@ -29,7 +59,7 @@ int main(int argc, char** argv) {
 
      int skip = parseArgs(argc, argv);
 
-     pmemMount(); //we have access to shared mem. TODO pass key?
+     pmemMount(passedKey, generate); //we have access to shared mem 
 
      pmemPartition(); //we know where everything is
      
@@ -40,6 +70,8 @@ int main(int argc, char** argv) {
 
      
      int hard = getIdx();
+
+     everybodyInit(hard);
      
      Capsule* curInst = PMAddr(*( (PMem*)PMAddr(currentlyInstalled) + hard ));
      
@@ -97,9 +129,6 @@ int main(int argc, char** argv) {
 	   * code and we are off to the races. 
 	   */
 	  trampolineCapsule();
-
-	  
-	  
      } else {
 	  //not in charge of init, just start trampoline with
 	  //scheduling code
@@ -111,5 +140,6 @@ int main(int argc, char** argv) {
 	  *curInst = sched;
 	  trampolineCapsule();
      }
+     pmemDetach();
 }
      

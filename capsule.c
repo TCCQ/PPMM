@@ -5,6 +5,7 @@
 #include "typesAndDecs.h"
 
 PMem currentlyInstalled; //see capsule.h
+PMem trampolineQuit;
 
 Capsule makeCapsule(funcPtr_t instructions) {
      Capsule output;
@@ -64,14 +65,19 @@ Capsule resetWhoAmI(void) {
 }
 
 /* 
+ * call from usercode that we are done here. This affects all processes
+ */
+Capsule shutdown(void) {
+     *((boolean*)PMAddr(trampolineQuit)) = true;
+}
+
+/* 
  * this is a true process local variable. it is a convience pointer to
  * the 2long array of capsules that this process swaps between. The current
  * capsule needs to be cross accessable, but the off capsule for any
  * process is only meaningful for that process. on hard fault, the
  * steal moves the currently installed capsule to the thief's area, so
  * this is never seen by anyone other than the owner
- *
- * TODO init (should be declared extern somewhere to access)
  */
 PMem installedSwap; 
 
@@ -98,8 +104,8 @@ void trampolineCapsule(void) {
      Capsule next;
      PMem pointerToCurrent;
      int hardWhoAmI = hardWhoAmI();
-     while (true) { // TODO make quiting mechinism
-
+     while (*((boolean*)PMAddr(trampolineQuit))) { 
+	  
 
 	  /*
 	   * TODO flush cache BEFORE cap change over
@@ -141,4 +147,5 @@ void trampolineCapsule(void) {
 	       __atomic_store_n((Capsule*) PMAddr(pointerToCurrent), (Capsule*) PMAddr(installedSwap), __ATOMIC_SEQ_CST); 
 	  }
      }
+     //we can just cleanly exit here and drop back to main to do the cleanup
 }
