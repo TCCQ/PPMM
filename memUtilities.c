@@ -35,7 +35,7 @@ void wipeTag(struct entryTag* toWipe) {
      byte* output;
      while (i < sizeof(struct entryTag)) {
 	  output = ((byte*)toWipe) + i;
-	  output = 0;
+	  *output = 0;
 	  i++;
      }
 }
@@ -50,7 +50,7 @@ Capsule tryGrab(void) {
 
      rassert(idx >= 0 && idx < MEMORY_TABLE_SIZE, "index out of bounds on attempted memory table grab");
 
-     int self = getProcIdx();
+     int self = getProcIDX();
      entry* interest = quickEntryGet(idx);
 
      struct entryTag replacement;
@@ -77,7 +77,7 @@ Capsule release(void) {
      int idx;
      pPopArg(idx);
 
-     int self = getProcIdx();
+     int self = getProcIDX();
      entry* interest = quickEntryGet(idx);
 
      if (!interest->tag.isGrabbed || interest->tag.owner != self) {
@@ -202,7 +202,12 @@ Capsule mPostSecondGrab(void) {
 	       pcall(&release, &mPostGrab);
 	       //next, try to merge here again, chaining 
 	  }
+     } else {
+	  //failed grab
+	  pPushCntArg(idx);
+	  pcnt(&mReleaseOrginal);
      }
+     
 }
 
 Capsule mReleaseOrginal(void) {
@@ -273,6 +278,9 @@ Capsule allocatingLoop(void) {
      }
 }
 
+Capsule retPMem(void);
+Capsule findFreeEntry(void);
+
 Capsule allocatingPostGrab(void) {
      boolean succGrab;
      int idx;
@@ -303,7 +311,7 @@ Capsule allocatingPostGrab(void) {
 	  } else if (interest->data.size > desiredSize) {
 	       //larger than we need, make leftover entry
 	       interest->isInUse = true; //TODO atomic write?
-	       pPushCalleArg(interest->data.size - desiredSize);
+	       pPushCalleeArg(interest->data.size - desiredSize);
 	       //leftover size
 	       pPushCntArg(desiredSize);
 	       pPushCntArg(idx);
@@ -322,6 +330,10 @@ Capsule allocatingPostGrab(void) {
 	       pPushCalleeArg(idx);
 	       pcall(&release, &allocatingLoop);
 	  }
+     } else {
+	  //couldn't grab, 
+	  pPushCntArg(idx + 1);
+	  pcnt(&allocatingLoop); 
      }
 }
 
@@ -383,7 +395,7 @@ Capsule ffePostGrab(void) {
      } else {
 	  //didn't get it
 	  pPushCntArg(idx+1);
-	  pcall(&ffeLoop);
+	  pcnt(&ffeLoop);
      }
 }
 
@@ -457,8 +469,8 @@ Capsule freeLoop (void) {
 	                      interest->data.size == desired.size) {
 	  //matches
 	  pPushCntArg(idx);
-	  pPushCalleArg(idx);
-	  pcall(&tryGrab, &freePostGrab);
+	  pPushCalleeArg(idx);
+	  pcall(&tryGrab, &freePostLoop);
      } else {
 	  //move on
 	  pPushCntArg(desired);
@@ -473,7 +485,7 @@ Capsule freePostLoop(void) {
      pPopArg(grabbed);
      pPopArg(idx);
 
-     assert(grabbed, "failed to grab matching entry during free");
+     rassert(grabbed, "failed to grab matching entry during free");
 
      quickEntryGet(idx)->isInUse = false;
 

@@ -1,10 +1,14 @@
+#ifndef SETUP_HEADER
+#define SETUP_HEADER
+
 #include <sys/shm.h>
+#include "typesAndDecs.h"
 /* 
  * this mounts the pmem and sets the base pointer
  *
  * takes the shared memory key as an argument 
  */
-void pmemMount(key_t);
+void pmemMount(key_t, boolean);
 
 /* 
  * this partitions the mounted memory by setting up all the global pmems that
@@ -21,7 +25,7 @@ void pmemPartition(void);
  * this sets up all the initial values of the global pmems. it should
  * be run exactly one time on the partitioned memory.
  */
-void firstTimeInit(int myIdx);
+void firstTimeInit();
 
 /* 
  * local initialization that everybody needs. Takes hard wai
@@ -33,3 +37,5 @@ void everybodyInit(int hard);
  * are free to exit cleanly
  */
 void pmemDetach(void);
+
+#endif

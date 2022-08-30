@@ -1,3 +1,5 @@
+#ifndef FLOW_HEADER
+#define FLOW_HEADER
 #include "capsule.h"
 /*
  * This is the externally visible header for the calls that need to be
@@ -7,5 +9,6 @@
 
 Capsule join(void); //implimented in set.c
 
-Capsule fork(void); //implimented in scheduler.c
+Capsule ppmmfork(void); //implimented in scheduler.c
 
+#endif

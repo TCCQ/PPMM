@@ -1,3 +1,6 @@
+#ifndef PROC_MAP_HEADER
+#define PROC_MAP_HEADER
+
 #include <unistd.h>
 
 /* 
@@ -16,3 +19,6 @@ struct procData {
 boolean isLive(int);
 int hardWhoAmI(void);
 int getIdx(void);
+int getMyPid(void);
+
+#endif

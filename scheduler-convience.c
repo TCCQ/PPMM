@@ -9,10 +9,10 @@
  */
 
 //new empty with a set counter
-Job newEmtpyWithCounter(int c) {
+Job newEmptyWithCounter(int c) {
      Job out;
      out.tag.id = emptyId;
-     outtag..counter = c;
+     out.tag.counter = c;
      return out;
 }
 
@@ -34,7 +34,7 @@ Job makeScheduled(Job in) {
      in.tag.counter++;
      return in;
 }
-Job makeTaken(Job in, const Job* targetJob, int counterCopy) {
+Job makeTaken(Job in, PMem targetJob, int counterCopy) {
      in.tag.id = takenId;
      in.target = targetJob;
      in.tag.counter = counterCopy;
@@ -45,8 +45,11 @@ Job makeTaken(Job in, const Job* targetJob, int counterCopy) {
 int getCounter(Job in) {
      return in.tag.counter;
 }
-int getId(Job) {
+int getId(Job in) {
      return in.tag.id;
+}
+PMem getTarget(Job in) {
+     return in.target;
 }
 
 /* dumb checks, boolean typedef is unsigned char in scheduler.h */
@@ -79,7 +82,7 @@ boolean isTaken(Job in) {
 boolean CompareJob(Job a, Job b) {
      if (a.tag.id == b.tag.id && a.tag.counter == b.tag.counter) {
 	  if (isTaken(a)) {
-	       if (a.target == b.target) return true;
+	       if (a.target.offset == b.target.offset) return true;
 	       else return false;
 	  } else {
 	       if (a.work.joinLoc == b.work.joinLoc && a.work.forkSide == b.work.forkSide) return true;
@@ -134,9 +137,9 @@ int getVictim(void) {
  * get top/bottom of the deque of another proc by idx
  */
 int getTop(int targetIdx) {
-     return tops[targetIdx];
+     return ( (int*)PMAddr(tops) )[targetIdx];
 }
 int getBot(int targetIdx) {
-     return bots[targetIdx];
+     return ((int*)PMAddr(bots) )[targetIdx];
 }
 

@@ -2,6 +2,7 @@
  * This is the file that should start everything else.
  */
 #include <stdlib.h> //for rand
+#include <time.h> //for time
 #include <string.h>
 #include <sys/shm.h> //for key_t
 #include "capsule.h"
@@ -9,8 +10,10 @@
 #include "setup.h"
 #include "procMap.h"
 #include "scheduler.h"
+#include "assertion.h"
+#include "pStack.h"
 #include "pStack-internal.h"
-
+#include "tests.h"
 /* 
  * define the control flags as globals here to be set during parse and
  * read during main
@@ -18,6 +21,7 @@
 boolean doInit;
 boolean startingProc;
 boolean generate;
+boolean testing;
 
 key_t passedKey;
 
@@ -29,28 +33,33 @@ int parseArgs (int ac, char** av) {
      generate = false;
      doInit = false;
      startingProc = false;
+     testing = false;
 
      boolean gotKeyOrGenerating = false;
-     for (int i = 0; i < ac; i++) {
+     printf("%i\n", ac);
+     for (int i = 1; i < ac; i++) {
+	  printf("%s\n", av[i]);
 	  if (strcmp(av[i], "-g") == 0) {
 	       generate = true;
 	       gotKeyOrGenerating = true;
 	  } else if (strcmp(av[i], "-i") == 0) {
 	       doInit = true;
+	  } else if (strcmp(av[i], "-t") == 0) {
+	       testing = true;
 	  } else if (strcmp(av[i], "-s") == 0) {
 	       startingProc = true;
 	  } else if (strcmp(av[i], "-k") == 0) {
 	       //next should be the key number
 	       if (ac <= i+1) rassert(0, "you didn't pass a key");
 
-	       passedKey = stoi(av[i+1]);
+	       passedKey = atoi(av[i+1]);
 	       gotKeyOrGenerating = true;
 	  } else {
-	       if (!gotKeyOrGenerating) rassert(0, "pass a key or generate one");
+	       /* if (!gotKeyOrGenerating) rassert(0, "pass a key or generate one"); */
 	       return i;
 	  }
      }
-     if (!gotKeyOrGenerating) rassert(0, "pass a key or generate one");
+     //if (!gotKeyOrGenerating) rassert(0, "pass a key or generate one");
      return 0;
 }
 
@@ -72,8 +81,9 @@ int main(int argc, char** argv) {
      int hard = getIdx();
 
      everybodyInit(hard);
+
      
-     Capsule* curInst = PMAddr(*( (PMem*)PMAddr(currentlyInstalled) + hard ));
+     Capsule* curInst = (Capsule*) PMAddr( (( (PMem*)PMAddr(currentlyInstalled) )[hard]) );
      
      if (startingProc) {
 	  /* 
@@ -83,7 +93,7 @@ int main(int argc, char** argv) {
 
 	  extern funcPtr_t ppmmStartCap;
 
-	  Capsule first = makeCapsule(&ppmmStartCap);
+	  Capsule first = makeCapsule(ppmmStartCap);
 	  first.forkSide = 0;
 	  first.joinLoc = 0;
 	  first.whoAmI = hard;
@@ -128,6 +138,13 @@ int main(int argc, char** argv) {
 	   * singlePushJob will turn over into the regular scheduling
 	   * code and we are off to the races. 
 	   */
+	  trampolineCapsule();
+     } else if (testing) {
+	  Capsule test = makeCapsule(&testMain);
+	  test.forkSide = 0;
+	  test.joinLoc = 0;
+	  test.whoAmI = hard;
+	  *curInst = test;
 	  trampolineCapsule();
      } else {
 	  //not in charge of init, just start trampoline with

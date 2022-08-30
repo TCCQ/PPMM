@@ -1,3 +1,6 @@
+#ifndef TYPES_HEADER
+#define TYPES_HEADER
+
 /* 
  * This file should have all the typedefs and constants that I will
  * want to use in more than 1 place. Also it should include the stuff
@@ -13,7 +16,20 @@
  */
 typedef unsigned char boolean;
 typedef unsigned char byte;
+#define true 1
+#define false 0
+#include <errno.h>
 
+/* 
+ * I don't really like having this here because it's not quite were it
+ * needs to be, it should be with the other user visible stuff, but I
+ * think its fine for the moment. Prevents some inclusion loops.
+ * Consider having it have its own header
+ */
+typedef struct {
+     unsigned int offset;
+     unsigned int size;
+} PMem;
 
 /* 
  * scheduling constants
@@ -75,3 +91,5 @@ typedef unsigned char byte;
  * really what to do with it. it goes here now I guess
  */
 void yield(void); 
+
+#endif

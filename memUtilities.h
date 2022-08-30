@@ -1,5 +1,9 @@
-#include <sys/types.h> //for size_t
+#ifndef MEM_UTIL_HEADER
+#define MEM_UTIL_HEADER
 
+#include <sys/types.h> //for size_t
+#include <stdint.h> //fixed size ints
+#include "typesAndDecs.h"
 /* Persistent Memory */
 
 /*
@@ -18,8 +22,6 @@
  * they do not exceed the size of the referenced data in the reference
  * itself. 
  */
-
-typedef struct {unsigned int offset; unsigned int size} PMem;
 
 /* 
  * consider adding a new public header as a subset of this, cause most
@@ -103,9 +105,6 @@ void PMflush(void);
  * that the data type is 1,2,4,8 bytes long, otherwise atomiticity is
  * not guaranteed
  *
- * consider adding asserts here that confirm that value is the
- * right size.
- *
  * fixed the no return value with a inline block scope which
  * should prevent it? not clear could use a overkill with a ({})
  * enclosure ("statement expression" I think), and have the line be 1;
@@ -113,10 +112,49 @@ void PMflush(void);
  *
  * consider including a memsync or a flush here just to be 100%
  * sure. idk how shared memory normally works
+ *
+ * WARNING This is extremely unsafe when used on expressions whose
+ * evaluation has side effects. DO NOT USE THEM HERE. Copy their
+ * result into a variable and then use that if necessary.  
  */
 #ifndef CAM
-#define CAM(loc, old, new) { \
-	  (__atomic_compare_exchange_n(loc, &(old), new, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) \
-	       }
+
+#define CAM(loc, old, new) {						\
+	  if (sizeof(old) == 1) {					\
+	       uint8_t* _loc = (uint8_t*) (loc);			\
+	       uint8_t* _expected = (uint8_t*) (&(old));		\
+	       __auto_type _new = new;					\
+	       uint8_t _repl = *( (uint8_t*) (&(_new)) );		\
+	       __atomic_compare_exchange_n(_loc, _expected, _repl, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); \
+	  } else if (sizeof(old) == 2) {				\
+	       uint16_t* _loc = (uint16_t*) (loc);			\
+	       uint16_t* _expected = (uint16_t*) (&(old));		\
+	       __auto_type _new = new;					\
+	       uint16_t _repl = *( (uint16_t*) (&(_new)) );		\
+	       __atomic_compare_exchange_n(_loc, _expected, _repl, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); \
+	  } else if (sizeof(old) == 4) {				\
+	       uint32_t* _loc = (uint32_t*) (loc);			\
+	       uint32_t* _expected = (uint32_t*) (&(old));		\
+	       __auto_type _new = new;					\
+	       uint32_t _repl = *( (uint32_t*) (&(_new)) );		\
+	       __atomic_compare_exchange_n(_loc, _expected, _repl, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); \
+	  } else if (sizeof(old) == 8) {				\
+	       uint64_t* _loc = (uint64_t*) (loc);			\
+	       uint64_t* _expected = (uint64_t*) (&(old));		\
+	       __auto_type _new = new;					\
+	       uint64_t _repl = *( (uint64_t*) (&(_new)) );		\
+	       __atomic_compare_exchange_n(_loc, _expected, _repl, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); \
+	  } else {							\
+	       rassert(0, "wrong size");				\
+	  }								\
+     }
 #endif
 
+/*
+  CAM_T* _loc = (CAM_T*) (loc);						\
+CAM_T* _expected = (CAM_T*) (&(old));					\
+CAM_T _new = *( (CAM_T*) (&(new)) );					\
+__atomic_compare_exchange_n(_loc, _expected, _new, false,
+__ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); \
+*/
+#endif

@@ -35,8 +35,8 @@ Capsule makeCapsule(funcPtr_t instructions) {
  * current capsule. (hopefully I don't need to do that often anyway)
  */
 Capsule quickGetInstalled(void) {
-     int hardWhoAmI = hardWhoAmI();
-     PMem myPointer = ( (PMem*)PMAddr(currentlyInstalled) )[hardWhoAmI];
+     int hard = hardWhoAmI();
+     PMem myPointer = ( (PMem*)PMAddr(currentlyInstalled) )[hard];
      return *( (Capsule*) PMAddr(myPointer) );
 }
 
@@ -49,7 +49,7 @@ Capsule quickGetInstalled(void) {
  * that need to use proc local data
  */
 int getProcIDX(void) {
-     return quickGetInstalled.whoAmI;
+     return quickGetInstalled().whoAmI;
 }
 
 /* 
@@ -58,9 +58,9 @@ int getProcIDX(void) {
  */
 Capsule resetWhoAmI(void) {
      //same as quick get, but edit instead of return
-     int hardWhoAmI = hardWhoAmI();
-     PMem myPointer = ( (PMem*)PMAddr(currentlyInstalled) )[hardWhoAmI];
-     ( (Capsule*) PMAddr(myPointer) )->whoamI = hardWhoAmI;
+     int hard = hardWhoAmI();
+     PMem myPointer = ( (PMem*)PMAddr(currentlyInstalled) )[hard];
+     ( (Capsule*) PMAddr(myPointer) )->whoAmI = hard;
      pretvoid;
 }
 
@@ -69,6 +69,7 @@ Capsule resetWhoAmI(void) {
  */
 Capsule shutdown(void) {
      *((boolean*)PMAddr(trampolineQuit)) = true;
+     return makeCapsule(&shutdown); //have to return some capsule
 }
 
 /* 
@@ -103,8 +104,8 @@ PMem installedSwap;
 void trampolineCapsule(void) {
      Capsule next;
      PMem pointerToCurrent;
-     int hardWhoAmI = hardWhoAmI();
-     while (*((boolean*)PMAddr(trampolineQuit))) { 
+     int hard = hardWhoAmI();
+     while (!( *((boolean*)PMAddr(trampolineQuit))) ) { 
 	  
 
 	  /*
@@ -132,19 +133,20 @@ void trampolineCapsule(void) {
 	  /*
 	   * This is the first part of the quick get code, but without the last deref
 	   */
-	  pointerToCurrent = ( (PMem*)PMAddr(currentlyInstalled) )[hardWhoAmI];
-	  
-	  next = ((*( (Capsule*) PMAddr(myPointer) )).rstPtr)(); //do the work and save the next capsule
+	  pointerToCurrent = ( (PMem*)PMAddr(currentlyInstalled) )[hard];
+
+	  funcPtr_t current = ( (Capsule*) PMAddr(pointerToCurrent) )->rstPtr;
+	  next = current(); //do the work and save the next capsule
 
 	  if (pointerToCurrent.offset == installedSwap.offset) { 
 	       //the first is installed, copy into second
 	       *(((Capsule*) PMAddr(installedSwap) )+1) = next;
 	       
-	       __atomic_store_n((Capsule*) PMAddr(pointerToCurrent), ((Capsule*) PMAddr(installedSwap))+1, __ATOMIC_SEQ_CST); 
+	       __atomic_store_n((Capsule**) PMAddr(pointerToCurrent), ((Capsule*) PMAddr(installedSwap))+1, __ATOMIC_SEQ_CST); 
 	  } else {
 	       //the second is installed, copy into first
 	       *((Capsule*) PMAddr(installedSwap) ) = next;
-	       __atomic_store_n((Capsule*) PMAddr(pointerToCurrent), (Capsule*) PMAddr(installedSwap), __ATOMIC_SEQ_CST); 
+	       __atomic_store_n((Capsule**) PMAddr(pointerToCurrent), (Capsule*) PMAddr(installedSwap), __ATOMIC_SEQ_CST); 
 	  }
      }
      //we can just cleanly exit here and drop back to main to do the cleanup

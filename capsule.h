@@ -1,16 +1,19 @@
-#define CAPSULE_INCLUDED 1
+#ifndef CAPSULE_HEADER
+#define CAPSULE_HEADER
 //prevent mutually recursive inclusions
 
-#include "set.h"
-#include "memUtilities.h"
+
 #include "typesAndDecs.h"
 /*
  * declarations for capsule code
  */
 
-
-typedef struct {
-     funcPtr_t rstPtr; //where the work is for this capsule
+struct CapsuleStruct {
+     /* 
+      * I need to use an explicit type here, but it should match
+      * funcPtr_t below
+      */
+     struct CapsuleStruct (*rstPtr)(void); //where the work is for this capsule
      
      /*
       * one bit, when I join am I left or right
@@ -40,7 +43,9 @@ typedef struct {
       * (getProcIDX)
       */
      int whoAmI; 
-} Capsule;
+};
+
+typedef struct CapsuleStruct Capsule;
 
 Capsule quickGetInstalled(void);
 int getProcIDX(void); //soft whoAmI, allows for hardfault steals
@@ -78,3 +83,4 @@ extern PMem trampolineQuit;
 Capsule makeCapsule(funcPtr_t);
 
 void trampolineCapsule(void);
+#endif

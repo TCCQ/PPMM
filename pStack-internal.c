@@ -22,8 +22,8 @@
  * these are the real definitions, the .h ones are extern
  */
 PMem pStackDirty;
-PMem cntHolder;
-PMem callHolder;
+PMem cntHolderDirty;
+PMem callHolderDirty;
 
 /* 
  * I need a pStack for each process and a pair of holding areas for
@@ -42,14 +42,16 @@ PMem calleeHolders;
 PMem pStacks; 
 
 
+
 /* 
  * This func pushes an argument to be used by the callee, it reads and
  * edits the pointer callee holder area
  */
 void ppcaaInternal(void* input, const int size) {
+     byte* in = (byte*)input;
      byte* output = (byte*)PMAddr(callHolderDirty);
      for (int i = 0; i < size; i++) {
-	  *(output++) = *(((byte*)input)++);
+	  *(output++) = *(in++);
      }
      callHolderDirty.offset += size;
      callHolderDirty.size += size;
@@ -57,9 +59,10 @@ void ppcaaInternal(void* input, const int size) {
 
 //same thing but for cnt
 void ppcnaInternal(void* input, const int size) {
+     byte* in = (byte*)input;
      byte* output = (byte*)PMAddr(cntHolderDirty);
      for (int i = 0; i < size; i++) {
-	  *(output++) = *(((byte*)input)++);
+	  *(output++) = *(in++);
      }
      cntHolderDirty.offset += size;
      cntHolderDirty.size += size;
@@ -67,9 +70,11 @@ void ppcnaInternal(void* input, const int size) {
 
 //pop from stack
 void ppaInternal(void* output, const int size) {
-     byte* input = (byte*)PMAddr(pStackDirty) - size; //start from bottom, move up
+     byte* input = (byte*)PMAddr(pStackDirty) - size;
+     //start from bottom, move up
+     byte* out = (byte*) output;
      for (int i = 0; i < size; i++) {
-	  *(((byte*)output)++) = *(input++);
+	  *(out++) = *(input++);
      }
      pStackDirty.offset -= size; //this is a pop, move down
      pStackDirty.size -= size;

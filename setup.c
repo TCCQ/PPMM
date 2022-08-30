@@ -18,13 +18,14 @@
  */
 
 byte* basePointer; //where is the whole pmem chunk mounted?
+PMem dynamicChunk;
 
 /* 
  * We are defining this here so that basePointer does not need an
  * extended scope
  */
 void* PMAddr(PMem input) {
-     return (void*) basePointer + input,offset; 
+     return (void*) basePointer + input.offset; 
 }
 
 /* 
@@ -32,20 +33,24 @@ void* PMAddr(PMem input) {
  */
 void pmemMount(key_t key, boolean generate) {
      int shmId;
+
+     //this is really the generating code, but it will work for now
+     char selfPath[SETUP_PATH_LENGTH];
+     int size = readlink("/proc/self/exe", selfPath, SETUP_PATH_LENGTH);
+     if (size == -1) {
+	  rassert(0, "could not get my own path name for setup purposes");
+     }
+     selfPath[size] = 0; //unclear if readlink does that?
+     key_t generatedKey = ftok(selfPath, SETUP_PROJECT_ID);
+     if (generatedKey == -1) {
+	  rassert(0, "could not generate a key");
+     }
+     key = generatedKey;
+     
      if (generate) {
-	  char selfPath[SETUP_PATH_LENGTH];
-	  int size = readlink("/proc/self/exe", selfPath, SETUP_PATH_LENGTH);
-	  if (size == -1) {
-	       rassert(0, "could not get my own path name for setup purposes");
-	  }
-	  selfPath[size] = 0; //unclear if readlink does that?
-	  key_t generatedKey = ftopk(selfPath, SETUP_PROJECT_ID);
-	  if (generatedKey == -1) {
-	       rassert(0, "could not generate a key");
-	  }
-	  key = generatedKey;
 	  
-	  int ret = shmget(, TOTAL_PMEM_SIZE, IPC_CREAT | SHM_HUGETLB | IPC_EXCL);
+	  
+	  int ret = shmget(key, TOTAL_PMEM_SIZE, IPC_CREAT | IPC_EXCL | 0600);
 	  if (ret == -1) {
 	       rassert(0, "could not create a shared segment, maybe already exists?");
 	  } else {
@@ -65,13 +70,13 @@ void pmemMount(key_t key, boolean generate) {
      //one way or another, we have a shm segment id now
      void* atRet = shmat(shmId, NULL, 0);
      //attach, read and write
-     if ((int)atRet == -1) {
+     if (atRet == (void*)-1) {
 	  rassert(0, "could not attach the shared memory segment");
      } else {
 	  basePointer = (byte*) atRet;
      }
 
-     ret = shmctl(shmId, IPC_RMID, NULL);
+     int ret = shmctl(shmId, IPC_RMID, NULL);
      /* 
       * marks the segment for deletion, will only happen after all
       * processes have been detached from it. newly attaching to a
@@ -80,7 +85,7 @@ void pmemMount(key_t key, boolean generate) {
       * third argument, but I think this command doesn't use it.
       */
      if (ret == -1 && errno != EPERM) {
-	  rassert(0, "could not mark the segment for deletion, but it wasn't a permissions issue")
+	  rassert(0, "could not mark the segment for deletion, but it wasn't a permissions issue");
      }
 }
 
@@ -103,7 +108,8 @@ void pmemPartition(void) {
       * see trampoline for quitting mechanism
       */
      cursor.size = sizeof(boolean);
-     extern PMem trampolineQuit = cursor;
+     extern PMem trampolineQuit;
+     trampolineQuit = cursor;
      cursor.offset += cursor.size;
 	  
      /*
@@ -112,7 +118,8 @@ void pmemPartition(void) {
       * pointer to array, where each entry is a pointer to a capsule
       */
      cursor.size = sizeof(PMem) * NUM_PROC;
-     extern PMem currentlyInstalled = cursor;
+     extern PMem currentlyInstalled;
+     currentlyInstalled = cursor;
      cursor.offset += cursor.size;
      
      /*
@@ -121,7 +128,8 @@ void pmemPartition(void) {
       * pointer to two long array of capsules. used by trampoline
       */
      cursor.size = sizeof(Capsule) * 2 * NUM_PROC;
-     extern PMem installedSwap = cursor;
+     extern PMem installedSwap;
+     installedSwap = cursor;
      cursor.offset += cursor.size;
      
      /*
@@ -141,18 +149,21 @@ void pmemPartition(void) {
      
      cursor.size = sizeof(PMem) * NUM_PROC;
      //pointer to stacks
-     extern PMem deques = cursor;
+     extern PMem deques;
+     deques = cursor;
      cursor.offset += cursor.size;
      /*
       * consider one super long array, divide by NUM_PROC for small
       * arrays? check usage.
       */
      cursor.size = sizeof(int) * NUM_PROC;
-     extern PMem tops = cursor;
+     extern PMem tops;
+     tops = cursor;
      cursor.offset += cursor.size;
 
      //same size
-     extern PMem bots = cursor;
+     extern PMem bots;
+     bots = cursor;
      cursor.offset += cursor.size;
      
 
@@ -176,11 +187,14 @@ void pmemPartition(void) {
      //real stacks
 
      cursor.size = sizeof(PMem) * NUM_PROC;
-     extern PMem continuationHolders = cursor;
+     extern PMem continuationHolders;
+     continuationHolders = cursor;
      cursor.offset += cursor.size;
-     extern PMem calleeHolders = cursor;
+     extern PMem calleeHolders;
+     calleeHolders = cursor;
      cursor.offset += cursor.size;
-     extern PMem pStacks = cursor;
+     extern PMem pStacks;
+     pStacks = cursor;
      cursor.offset += cursor.size;
      
      /*
@@ -189,7 +203,8 @@ void pmemPartition(void) {
       * NUM_PROC array of procData structs
       */
      cursor.size = sizeof(struct procData) * NUM_PROC;
-     extern PMem mapping = cursor;
+     extern PMem mapping;
+     mapping = cursor;
      cursor.offset += cursor.size;
      
      /*
@@ -198,7 +213,8 @@ void pmemPartition(void) {
       * SET_POOL_SIZE array of Sets
       */
      cursor.size = sizeof(Set) * SET_POOL_SIZE;
-     extern PMem setPool = cursor;
+     extern PMem setPool;
+     setPool = cursor;
      cursor.offset += cursor.size;
      
      /*
@@ -216,7 +232,15 @@ void pmemPartition(void) {
       * not work or be the best way to do it, but it's a start
       */
      cursor.size = sizeof(entry) * MEMORY_TABLE_SIZE;
-     extern PMem memTable = cursor;
+     extern PMem memTable;
+     memTable = cursor;
+     cursor.offset += cursor.size;
+
+     /* 
+      * dynamic memory
+      */
+     cursor.size = DYNAMIC_POOL_SIZE;
+     dynamicChunk = cursor;
      cursor.offset += cursor.size;
 }
 
@@ -224,7 +248,7 @@ void pmemPartition(void) {
  * this sets up all the initial values of the global pmems. it should
  * be run exactly one time on the partitioned memory.
  */
-void firstTimeInit(int myIdx) {
+void firstTimeInit(void) {
      /* 
       * memUtilities.c:
       * memTable
@@ -233,7 +257,8 @@ void firstTimeInit(int myIdx) {
       * {0, no}, 0, no}
       */
      entry empty;
-     empty.data = {0,0};
+     empty.data.offset = 0;
+     empty.data.size = 0;
      empty.inList = false;
      empty.tag.owner = 0;
      empty.tag.isGrabbed = false;
@@ -242,11 +267,12 @@ void firstTimeInit(int myIdx) {
 
      extern PMem memTable;
      entry* table = (entry*)PMAddr(memTable);
-     for (int i = 1; i < MEM_TABLE_SIZE; i++) {
+     for (int i = 1; i < MEMORY_TABLE_SIZE; i++) {
 	  table[i] = empty;
      }
 
-     empty.data = {0,DYNAMIC_POOL_SIZE};
+     
+     empty.data = dynamicChunk;
      empty.inList = true;
      //single entry for whole memory block
      table[0] = empty;
@@ -258,11 +284,11 @@ void firstTimeInit(int myIdx) {
       *
       * pick some pid that will never be allocated to this process
       */
-     struct procData empty = {1};
+     struct procData emptyProc = {1};
      extern PMem mapping;
      struct procData* map = (struct procData*)PMAddr(mapping);
      for (int i = 0; i < NUM_PROC; i++) {
-	  map[0] = empty;
+	  map[0] = emptyProc;
      }
 
      /* 
@@ -271,7 +297,7 @@ void firstTimeInit(int myIdx) {
       * set to all zeros
       */
      Set emptySet;
-     { int i = 0; while (i < sizeof(emptySet)) { *((byte*)&emptySet + i) = 0; } }
+     { int i = 0; while (i < sizeof(emptySet)) { *((byte*)&emptySet + i) = 0; i++;} }
      //clear it
 
      extern PMem setPool;
@@ -307,6 +333,14 @@ void firstTimeInit(int myIdx) {
 	       jobLoc[i] = emptyJob;
 	  }
      }
+
+     /* 
+      * make sure that we aren't quiting off the bat
+      */
+     extern PMem trampolineQuit;
+     boolean* q = PMAddr(trampolineQuit);
+     *q = false;
+
 }
 
 /* 
@@ -322,13 +356,27 @@ void everybodyInit(int hard) {
       */     
 
      extern PMem pStacks, continuationHolders, calleeHolders,
-	  pStackDirty, cntHolder, callHolder;
-     pStackDirty = *((PMem*)PMAddr(pStacks) + hard);
+	  pStackDirty, cntHolderDirty, callHolderDirty;
+     pStackDirty = ((PMem*)PMAddr(pStacks))[hard];
      pStackDirty.size = 0;
-     cntHolder = *((PMem*)PMAddr(continuationHolders) + hard);
-     cntHolder.size = 0;
-     callHolder = *((PMem*)PMAddr(calleeHolders) + hard);
-     callHolder.size = 0;
+     cntHolderDirty = ((PMem*)PMAddr(continuationHolders))[hard];
+     cntHolderDirty.size = 0;
+     callHolderDirty = ((PMem*)PMAddr(calleeHolders))[hard];
+     callHolderDirty.size = 0;
+
+     /* 
+      * each person sets up their own currently Installed pointer
+      */
+     extern PMem currentlyInstalled;
+     extern PMem installedSwap;
+
+     //we want a pmem to the first of the pair in installedSwap
+     //assocaited with our hard wai
+     PMem startingInstalled;
+     startingInstalled.size = sizeof(Capsule);
+     startingInstalled.offset = installedSwap.offset + (sizeof(Capsule)*2)*hard;
+     
+     ((PMem*)PMAddr(currentlyInstalled))[hard] = startingInstalled;
 }
 
 void pmemDetach(void) {

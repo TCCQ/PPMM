@@ -5,12 +5,14 @@
 #include "memUtilities.h" //PMem
 #include "pStack.h" //persistent flow operations
 #include "pStack-internal.h"
+#include "procMap.h"
+#include "assertion.h"
 #include "typesAndDecs.h"
 
-#define localDeque ( (Job*)(((PMem*)PMAddr(deques) + getProcIdx()) )
-#define bot ( (int*)(((PMem*)PMAddr(bots) + getProcIdx()) )
-#define top ( (int*)(((PMem*)PMAddr(tops) + getProcIdx()) )
-#define localIdx ( getProcIdx() )
+#define localDeque ( (Job*)((PMem*)PMAddr(deques) + getProcIDX()) )
+#define bot ( (int*)((PMem*)PMAddr(bots) + getProcIDX()) )
+#define top ( (int*)((PMem*)PMAddr(tops) + getProcIDX()) )
+#define localIdx ( getProcIDX() )
 /*
  * These should not be confused with the declarations at the bottom of
  * scheduler.h. Those are the sets of stacks, tops, and bottoms of
@@ -28,6 +30,12 @@
  * is stolen it works properly
  */
 
+PMem deques; //is PM array of size: [NUM_PROC][STACK_SIZE]
+
+PMem tops; //PM array of top indicies size NUM_PROC
+PMem bots; //PM array of top indicies size NUM_PROC
+
+
 /*
  * when does the new local Job get intialized and filled when a
  * steal happens? is it in helpTheif or in steal? when the local thing
@@ -42,20 +50,22 @@
 /* this is a non-persistent leaf function call */
 void helpThief(int victimProcIdx) {
      int topCopy = getTop(victimProcIdx);
-     Job foreignJobCopy = deques[victimProcIdx][topCopy];
+     Job* victimDeque = (Job*) ( PMAddr( *((PMem*)PMAddr(deques) + victimProcIdx) ) );
+     Job foreignJobCopy = victimDeque[topCopy];
      if (isTaken(foreignJobCopy)) {
-	  CAMJob(foreignJobCopy.target,
-		 newEmptyWithCounter(foreignJobCopy.counter),
-		 makeLocal(foreignJobCopy.target));
+	  Job* targetOfCopy = (Job*) PMAddr(getTarget(foreignJobCopy));
+	  CAMJob(targetOfCopy,
+		 newEmptyWithCounter(getCounter(foreignJobCopy)),
+		 makeLocal(*targetOfCopy));
 	  /*
 	   * the above relies on the fact that the taken counter is
 	   * the counter of the entry at the time of the steal
 	   */
-	  CAM(&top, topCopy, topCopy+1);
-	  foreignJobCopy.target.work = foreignJobCopy.work;
-	  foreignJobCopy.target.argSize = foreignJobCopy.argSize;
+	  CAM(top, topCopy, topCopy+1);
+	  targetOfCopy->work = foreignJobCopy.work;
+	  targetOfCopy->argSize = foreignJobCopy.argSize;
 	  for (int i = 0; i < foreignJobCopy.argSize; i++) {
-	       foreignJobCopy.target.args[i] = foreignJobCopy.args[i];
+	       targetOfCopy->args[i] = foreignJobCopy.args[i];
 	  }
           //copy the initial capsule to the new target
      }
@@ -97,20 +107,20 @@ Capsule pushBCnt (void) {
      pPopArg(left);
 
      Job currentJobCopy = localDeque[bottomCopy];
-     if (currentJobCopy.counter == currentCounterCopy && isLocal(currentJobCopy)) {
+     if (getCounter(currentJobCopy) == currentCounterCopy && isLocal(currentJobCopy)) {
 	  /* I guess this makes the replacement happen once? not sure why this is needed */
 	  localDeque[bottomCopy+1] = makeLocal(localDeque[bottomCopy+1]);
 	  *bot = bottomCopy+1;
 	  //now we have two local entries
 	  
 	  Job replacement = makeScheduled(left);
-	  replacement.counter = currentJobCopy.counter+1;
+	  replacement.tag.counter = getCounter(currentJobCopy)+1;
 	  Job* loc = &localDeque[bottomCopy];
 
 	  CAMJob(loc, currentJobCopy, replacement); 
-	  loc.argSize = replacement.argsSize;
-	  for (int i = 0; i < loc.argSize; i++) {
-	       loc.args[i] = replacement.args[i];
+	  loc->argSize = replacement.argSize;
+	  for (int i = 0; i < loc->argSize; i++) {
+	       loc->args[i] = replacement.args[i];
 	  }
 	  //one half is done
 
@@ -129,7 +139,7 @@ Capsule pushBCnt (void) {
 	  //continuation capsule. declared in pStack-internal.h
 	  return makeCapsule(&pStackReset);
 
-     } else if (isEmpty(localDeque[args.bCopy+1])) {
+     } else if (isEmpty(localDeque[bottomCopy+1])) {
 	  pPushCntArg(left);
 	  pPushCntArg(right);
 	  pcnt(&pushBottom); //basically restarting this call
@@ -140,6 +150,13 @@ Capsule pushBCnt (void) {
 	   */
 	    
      }
+     /* 
+      * TODO I don't know when this happens, so I guess I will
+      * basically restart?
+      */
+     pPushCntArg(left);
+     pPushCntArg(right);
+     pcnt(&pushBottom); //basically restarting this call
 }
 
 
@@ -173,14 +190,14 @@ Capsule pushBCnt (void) {
  * avoid packaging args within capsules, but store args outside of the
  * pStack (in the job in this case)
  */
-Capsule fork(void) {
+Capsule ppmmfork(void) {
      int joinSize;
      byte joinArgs[JOB_ARG_SIZE];
      funcPtr_t joinPtr;
      byte* output;
 
      pPopArg(joinSize);
-     byte* output = joinArgs+joinSize;
+     output = joinArgs+joinSize;
      for (int i = 0; i < joinSize; i++) {
 	  pPopArg(*(--output)); //copy into local args from stack, backwards
      }
@@ -188,7 +205,7 @@ Capsule fork(void) {
 
 
      Job joinJob = newEmptyWithCounter(0); //counters will be set later
-     joinJob.work = joinCap;
+     joinJob.work = makeCapsule(joinPtr);
      for (int i = 0; i < joinSize; i++) {
 	  joinJob.args[i] = joinArgs[i]; //copy into job struct
      }
@@ -234,7 +251,6 @@ Capsule forkCnt(void) {
       */
      Capsule leftCap = makeCapsule(leftPtr);
      Capsule rightCap = makeCapsule(rightPtr);
-     Capsule joinCap = makeCapsule(joinPtr);
 
      
      leftCap.forkSide = 0; //mark left fork
@@ -270,6 +286,7 @@ Capsule forkCnt(void) {
 /* forward decs for readability */
 Capsule stealCnt(void);
 Capsule graveRob(void);
+Capsule steal(void);
 
 /*
  * persistent cnt for finding a victim and trying to steal from them.
@@ -284,7 +301,7 @@ Capsule stealLoop(void) {
 
      pPushCntArg(getVictim);
      pPushCntArg(getCounter(localDeque[*bot]));
-     pPushCntArg(((Job*) *((PMem*)(PMAddr(deques)) + getProcIdx()) + *bot));
+     pPushCntArg( *((PMem*)PMAddr(deques) + getProcIDX() + *bot) );
      /*
       * this should be the bottom of the stack, hopefully.
       */
@@ -298,9 +315,7 @@ Capsule stealLoop(void) {
  * to steal, or they are alive and and we can't grave rob. if the
  * steal works, jumps to the stolen work.
  */
-Job steal(void) {
-     struct stealArgs args;
-     getCapArgs(args); //only first half is valid, fill the rest
+Capsule steal(void) {
      int victimIdx;
      int counterCopy;
      PMem outputLoc;
@@ -318,7 +333,7 @@ Job steal(void) {
      PMem jobArray = ((PMem*) PMAddr(deques))[victimIdx];
      pPushCntArg( ((Job*) PMAddr(jobArray))[getTop(victimIdx)]); //copy of job being stolen
 
-     pcnt(&stealcnt); //cap bound
+     pcnt(&stealCnt); //cap bound
 }
 
 /*
@@ -337,25 +352,23 @@ Capsule stealCnt(void) {
      pPopArg(toStealCopy);
      pPopArg(topCopy);
      pPopArg(outputLoc);
-     pPopArg(countCopy);
+     pPopArg(counterCopy);
      pPopArg(victimProcIdx);
 	  
      
      Job updatedEntry;
-     Capsule stolenCap;
-     switch (getId(&toStealCopy)) {
-     case emptyId: //Nothing to steal
-	  pcnt(&stealLoop); //jump steal loop
-	  
+     PMem jobArray;
+     Job* location;
+     Job onStack;
+     switch (getId(toStealCopy)) {
      case takenId: //someone stole it first, help them
 	  helpThief(victimProcIdx);
 	  pcnt(&stealLoop); //jump steal loop
 	  
      case scheduledId: //something to steal
-	  updatedEntry = makeTaken(&toStealCopy, outputLoc, couterCopy);
-	  stolenCap = toStealCopy.work;
-	  PMem jobArray = ((PMem*) PMAddr(deques))[victimProcIdx];
-	  Job* location = ((Job*) PMAddr(jobArray)) +topCopy;
+	  updatedEntry = makeTaken(toStealCopy, outputLoc, counterCopy);
+	  jobArray = ((PMem*) PMAddr(deques))[victimProcIdx];
+	  location = ((Job*) PMAddr(jobArray)) +topCopy;
 	  CAMJob(location, toStealCopy, updatedEntry);
 	  helpThief(victimProcIdx);
 	  /* local entry at outputLoc is added in helpThief */
@@ -375,13 +388,13 @@ Capsule stealCnt(void) {
 	  return makeCapsule(&pStackReset);
 	  
      case localId: //could grave rob
-	  PMem jobArray = ((PMem*) PMAddr(deques))[victimProcIdx];
-	  Job onStack = ((Job*) PMAddr(jobArray))[topCopy];
+	  jobArray = ((PMem*) PMAddr(deques))[victimProcIdx];
+	  onStack = ((Job*) PMAddr(jobArray))[topCopy];
 	  if (!isLive(victimProcIdx) &&
 	      CompareJob(onStack, toStealCopy)) {
 	       
 	       pPushCntArg(victimProcIdx);
-	       pPushCntArg(countCopy);
+	       pPushCntArg(counterCopy);
 	       pPushCntArg(outputLoc);
 	       pPushCntArg(topCopy);
 	       pPushCntArg(toStealCopy);
@@ -389,6 +402,11 @@ Capsule stealCnt(void) {
 	  }
 	  pcnt(&stealLoop); //jump steal loop, stolen or alive
 	  
+     case emptyId: //Nothing to steal
+	  pcnt(&stealLoop); //jump steal loop
+
+     default:
+	  rassert(0, "Encountered a Job of unknown type");
      }
 }
 
@@ -405,18 +423,16 @@ Capsule graveRob(void) {
      pPopArg(toStealCopy);
      pPopArg(topCopy);
      pPopArg(outputLoc);
-     pPopArg(countCopy);
+     pPopArg(counterCopy);
      pPopArg(victimProcIdx);
      
      Job updatedEntry;
-     Capsule stolenCap;
 
-     stolenCap = toStealCopy.work;
-     updatedEntry = makeTaken(toStealCopy, PMAddr(outputLoc), counterCopy);
+     updatedEntry = makeTaken(toStealCopy, outputLoc, counterCopy);
 
      PMem jobArray = ((PMem*) PMAddr(deques))[victimProcIdx];
      Job* oldTop = ((Job*) PMAddr(jobArray)) +topCopy;
-     *(newTop+1) = makeEmpty(*(newTop+1));
+     *(oldTop+1) = makeEmpty(*(oldTop+1));
      
      CAMJob(oldTop, toStealCopy, updatedEntry);
      helpThief(victimProcIdx); //non-persistent leaf call, makes local entry
@@ -449,8 +465,9 @@ Capsule popBCnt(void);
  * from the paper in half)
  */
 Capsule popBottom(void) {
-     pPushCntArg(*bot); //copy of bottom
-     pPushCntArg(localDeque[botCopy-1]); //copy of job
+     int bc = *bot;
+     pPushCntArg(bc); //copy of bottom
+     pPushCntArg(localDeque[bc-1]); //copy of job
      pcnt(&popBCnt); //this is the cap bound in the middle
 }
 
@@ -466,7 +483,7 @@ Capsule popBCnt(void) {
      if (isScheduled(jobCopy)) { //not yet being worked on by anyone
 	  /* construct a new local job from the scheduled job */
 	  Job replacement = makeLocal(jobCopy); //version that is claimed by this proc
-	  CAMJob(&(localDeque[botCopy-1], jobCopy, replacement));
+	  CAMJob(&(localDeque[botCopy-1]), jobCopy, replacement);
 	  if (CompareJob(localDeque[botCopy-1], replacement)) {
 	       *bot = botCopy-1; //update the global value (PM)
 
@@ -478,7 +495,7 @@ Capsule popBCnt(void) {
 		*
 		* this is (indirectly) a scheduler-usercode boundary
 		*/
-	       for (int i = 0; i < replacement.argSizel i++) {
+	       for (int i = 0; i < replacement.argSize; i++) {
 		    pPushCntArg(replacement.args[i]);
 	       }
 	       pPushCntArg(replacement.work);
@@ -501,7 +518,7 @@ Capsule singleJobPush(void) {
      pPushCntArg(bottomCopy);
      pPushCntArg(localDeque[bottomCopy]);
      pPushCntArg(getCounter(localDeque[bottomCopy]));
-     pcnt(&spjCnt);
+     pcnt(&sjpCnt);
 }
 
 Capsule sjpCnt(void) {
@@ -514,8 +531,8 @@ Capsule sjpCnt(void) {
      pPopArg(botCopy);
      pPopArg(new); //goes through singleJobPush
 
-     new.counter = oldCounter+1;
-     new.id = localId;
+     new.tag.counter = oldCounter+1;
+     new.tag.id = localId;
      CAMJob(&(localDeque[botCopy]), old, new);
      //not sure if this needs to be a cam or not?
      localDeque[botCopy].argSize = new.argSize;

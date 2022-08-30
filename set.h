@@ -1,8 +1,9 @@
+#ifndef SET_HEADER
+#define SET_HEADER
+
 #include "scheduler.h"
 
-#ifndef CAPSULE_INCLUDED
 #include "capsule.h"
-#endif
 
 #include "typesAndDecs.h"
 /*
@@ -16,8 +17,8 @@ struct swappable {
      byte isLast; //bottom bit is last edit, 2nd bit is in use
      
      /* pad to atomic'able size */
-     byte padding[8-sizeof(struct swappable)];
-}
+     byte padding[2];
+};
 
 typedef struct {
      struct swappable tagAndData;
@@ -43,3 +44,5 @@ Capsule preHandoverEdits(void);
 Capsule cleanup(void);
 
 Capsule cleanupCnt(void);
+
+#endif

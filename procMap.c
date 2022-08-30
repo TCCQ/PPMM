@@ -1,8 +1,8 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <fcntl.h> //file opening errors
-#include <string.h>
 #include <sys/stat.h> //checking if file exists
+#include <string.h>
 #include "memUtilities.h"
 #include "assertion.h"
 #include "typesAndDecs.h"
@@ -42,14 +42,14 @@ struct procData* mapGet(int index) {
 /* 
  * helper for checkPid, expects line to be at least PROCFS_LINE_SIZE long
  */
-int fillCmdline(str path, char* line) {
+int fillCmdline(char* path, char* line) {
      /*
       * not sure if this is safe to do? I think files are closed on
       * crash so it should be fine?
       */
 
-     FILE f = fopen(path, "r"); //read only
-     rassert(f, "something went wrong opening cmdline file")
+     FILE* f = fopen(path, "r"); //read only
+     rassert(f != NULL, "something went wrong opening cmdline file");
      /*
       * format is words separated with \0, and two \0 at the end I am
       * going to read manually, the system stuff doesn't quite fit
@@ -94,12 +94,13 @@ boolean checkPid(pid_t test) {
      int targetLength, myLength;
      char targetLine[PROCFS_LINE_SIZE];
      char myLine[PROCFS_LINE_SIZE];
-     
-     str targetPath = "/proc/";
+
+     char targetPath[PROCFS_LINE_SIZE];
+     strcpy(targetPath,"/proc/");
      char targetNumber[13]; //hold the number
      sprintf(targetNumber, "%d", test); 
-     targetPath = strcat(targetPath, targetNumber);
-     targetPath = strcat(targetPath, "/cmdline");
+     strcpy(targetPath, strcat(targetPath, targetNumber));
+     strcpy(targetPath, strcat(targetPath, "/cmdline"));
      
      struct stat exists;
      int ret = stat(targetPath, &exists);
@@ -110,11 +111,12 @@ boolean checkPid(pid_t test) {
 	  targetLength = fillCmdline(targetPath, targetLine);
 	  //TODO unsafe char* to str?
      }
-     str myPath = "/proc/";
+     char myPath[PROCFS_LINE_SIZE];
+     strcpy(myPath, "/proc/");
      char myNumber[13]; //hold the number
-     sprintf(myNumber, "%d", getMyPid()); 
-     myPath = strcat(myPath, myNumber);
-     myPath = strcat(myPath, "/cmdline");
+     sprintf(myNumber, "%d", getMyPid());
+     strcat(myPath, myNumber);
+     strcat(myPath, "/cmdline");
 
      ret = stat(myPath, &exists);
      rassert(ret == 0, "couldn't stat my own cmdline file");
@@ -124,7 +126,7 @@ boolean checkPid(pid_t test) {
      if (myLength != targetLength) return false;
      else if (memcmp(myLine, targetLine, myLength)) return false;
      //cant use strcmp cause they are zero terminated words
-     else return true
+     else return true;
 }
 
 //emphemeral call, would be persistent if updating the table, as that requires cam cap
@@ -148,6 +150,12 @@ int hardWhoAmI(void) {
 
 //need getIdx, should hang in check-yield loop if none are available (could exit ig)
 int getIdx(void) {
+     /* 
+      * debugging only
+      */
+     mapGet(0)->pid = getMyPid();
+     return 0;
+     
      boolean quit = false;
      while (!quit) {
 	  for (int i = 0; i < NUM_PROC; i++) {
@@ -166,5 +174,6 @@ int getIdx(void) {
 	  }
 	  yield();
      }
+     return -1; //should never get here
 }
 

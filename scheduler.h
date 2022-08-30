@@ -1,7 +1,7 @@
-#ifndef CAPSULE_INCLUDED
-#include "capsule.h"
-#endif
+#ifndef SCHEDULING_HEADER
+#define SCHEDULING_HEADER
 
+#include "capsule.h"
 #include "memUtilities.h"
 #include "typesAndDecs.h"
 /* Interally visible stuff for the scheduler code */
@@ -15,8 +15,6 @@
 
 
 /* job struct declartions */
-typedef unsigned char id_t;
-typedef unsigned char counter_t;
 enum JOB_IDS{
      emptyId=0, localId, scheduledId, takenId
 };
@@ -36,7 +34,7 @@ typedef struct {
      Capsule work;
      byte args[JOB_ARG_SIZE];
      int argSize;
-}  Job;
+} Job;
 
 
 Job newEmptyWithCounter(int); //make an empty entry with the counter set
@@ -54,6 +52,7 @@ Job makeCopyJob(Job); //works for all types.
 /* getters */
 int getCounter(Job);
 int getId(Job);
+PMem getTarget(Job);
 /* dumb checks */
 boolean isEmpty(Job);
 boolean isLocal(Job);
@@ -93,7 +92,9 @@ int getBot(int);
 
 /* this is a PM pointer to an array of length NUM_PROC, each is array
  * of Jobs (STACK_SIZE)*/
-PMem deques; //is PM array of size: [NUM_PROC][STACK_SIZE]
+extern PMem deques; //is PM array of size: [NUM_PROC][STACK_SIZE]
 
-PMem tops; //PM array of top indicies size NUM_PROC
-PMem bots; //PM array of top indicies size NUM_PROC
+extern PMem tops; //PM array of top indicies size NUM_PROC
+extern PMem bots; //PM array of top indicies size NUM_PROC
+
+#endif

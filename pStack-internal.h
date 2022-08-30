@@ -1,3 +1,6 @@
+#ifndef PSTACK_INT_HEADER
+#define PSTACK_INT_HEADER
+
 /* 
  * This is included from pStack.h and allows for some firewalling of
  * user and internal code. it contains the helper functions for the
@@ -12,8 +15,8 @@
  * pStack-internal.c
  */
 extern PMem pStackDirty;
-extern PMem cntHolder;
-extern PMem callHolder;
+extern PMem cntHolderDirty;
+extern PMem callHolderDirty;
 
 extern PMem continuationHolders; 
 extern PMem calleeHolders; 
@@ -60,3 +63,5 @@ Capsule pCntCap(void);
  * resets the stack, copies the arguments, and starts the continuation
  */
 Capsule pStackReset(void);
+
+#endif

@@ -1,3 +1,6 @@
+#ifndef PSTACK_HEADER
+#define PSTACK_HEADER
+
 #include "pStack-internal.h"
 #include "memUtilities.h"
 #include "capsule.h"
@@ -12,26 +15,46 @@
  * managing the pStack's arguments
  */
 
-#define pPushCalleeArg(arg) ppcaaInternal(&arg, sizeof(arg))
+/* 
+ * Basically I want do just pass (&arg, sizeof(arg)) to the internal
+ * functions, but I can't just do that cause I need to be able to use
+ * computed/returned values. rvalues basically. 
+ */
 
-#define pPushCntArg(arg) ppcnaInternal(&arg, sizeof(arg))
+#define pPushCalleeArg(arg) {			\
+	  __auto_type _arg = arg;		\
+          ppcaaInternal(&(_arg), sizeof(_arg));	\
+	  }
+
+#define pPushCntArg(arg) {			\
+	  __auto_type _arg = arg;		\
+          ppcnaInternal(&(_arg), sizeof(_arg));	\
+	  }
 
 #define pPopArg(arg) ppaInternal(&arg, sizeof(arg))
 
-#define pcnt(cnt) ppcnaInternal(&cnt, sizeof(cnt)); \
+#define pcnt(cnt) {					\
+	  __auto_type _cnt = cnt;			\
+	  ppcnaInternal(&(_cnt), sizeof(_cnt));		\
+     }							\
      return makeCapsule(&pCntInternal)
 
-#define pcall(callee, cnt) ppcnaInternal(&cnt, sizeof(cnt)); \
-     ppcaaInternal(&callee, sizeof(callee)); \
+#define pcall(callee, cnt) {				\
+	  __auto_type _callee = callee;			\
+	  __auto_type _cnt = cnt;			\
+	  ppcnaInternal(&(_cnt), sizeof(_cnt));		\
+	  ppcaaInternal(&(_callee), sizeof(_callee));	\
+     }							\
      return makeCapsule(&pCallInternal)
 
-#define pret(arg) ppcnaInternal(&arg, sizeof(arg)); \
+#define pret(arg) {				\
+     __auto_type _arg = arg;			\
+     ppcnaInternal(&(_arg), sizeof(_arg));	\
+     }						\
      return makeCapsule(&pRetInternal)
 
 #define pretvoid return makeCapsule(&pRetInternal);
 
 //these have to be defined and not calls cause they have to use the trampoline system
 
-
-
-
+#endif

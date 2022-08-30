@@ -1,14 +1,11 @@
 #include "set.h"
-
-#ifndef CAPSULE_INCLUDED
 #include "capsule.h"
-#endif
-
 #include "flow.h" //join declaration
 #include "memUtilities.h"
 #include "procMap.h" //hard who am I
 #include "pStack.h"
 #include "scheduler.h"
+#include "assertion.h"
 #include "typesAndDecs.h"
 
 /* 
@@ -31,6 +28,8 @@ Capsule getAndInitSet(void) {
      //Job, owner goes through to cnt
      pcall(&loopGetSet, &gotSet);
 }
+
+Capsule aquireSet(void);
 
 /* 
  * gets an int, tries to acquire said set
@@ -77,14 +76,14 @@ Capsule aquireSet(void) {
      Set* ptr = quickGetSet(idx);
      CAM(&(ptr->tagAndData), old, replacement);
 
-     if (ptr->owner == newOwner) {
+     if (ptr->tagAndData.owner == newOwner) {
 	  //success!, return idx
 	  pret(idx);
      } else {
 	  //failed, back to loop
 	  pPushCntArg(newOwner); //save for next time
 	  pPushCntArg(idx+1);
-	  pcnt(&loopGetSet)
+	  pcnt(&loopGetSet);
      }
 }
 
@@ -101,7 +100,7 @@ Capsule gotSet(void) {
 
      //owner is set already
      setPtr->continuation = postJoin;
-     pRet(idx);
+     pret(idx);
 }
 
 
@@ -155,29 +154,29 @@ Capsule checkOut(void) {
 		    rep.isLast = 0x02 | mySide;
 		    CAM(&(ptr->tagAndData), current, rep);
 	       
-	       } else if (current.data == 1 && isLast == 0x02 | mySide) {
+	       } else if (current.data == 1 && current.isLast == (0x02 | mySide)) {
 		    //I was the last edit and the first to arrive, free to leave
 		    pcnt(&scheduler);
 	       
-	       } else if (current.data == 1 && isLast == 0x02 | ((~mySide) & 0x01)) {
+	       } else if (current.data == 1 && current.isLast == (0x02 | ((~mySide) & 0x01))) {
 		    //I am second to arrive and the other guy has edited
 		    rep.data = 0;
 		    rep.isLast = 0x02 | mySide;
 		    CAM(&(ptr->tagAndData), current, rep); 
 	       
-	       } else if (current.data == 0 && isLast == 0x02 | mySide) {
+	       } else if (current.data == 0 && current.isLast == (0x02 | mySide)) {
 		    //I was last edit and last to arrive, do the work
 		    pPushCntArg(idx);
 		    pcnt(&cleanup);
 	       
-	       } else if (current.data == 0 && isLast == 0x02 | ((~mySide) & 0x01)) {
+	       } else if (current.data == 0 && current.isLast == (0x02 | ((~mySide) & 0x01))) {
 		    //I was not the last edit or the last to arrive, am
 		    //free to go
 		    pcnt(&scheduler);
 	       
 	       } else {
 		    /*
-		     * current.data == 0 && !(isLast & 0x02)
+		     * current.data == 0 && !(current.isLast & 0x02)
 		     *
 		     * I am last to arrive and the other guy has started
 		     * cleanup
@@ -211,7 +210,7 @@ Capsule cleanupCnt(void) {
      int idx;
      pPopArg(idx);
 
-     quickGetSet(idx)->isLast = 0; //not in use anymore
+     quickGetSet(idx)->tagAndData.isLast = 0; //not in use anymore
      //job goes through
      pcnt(&singleJobPush); //handover to scheduler to work there
 }
