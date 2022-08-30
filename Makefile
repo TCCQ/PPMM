@@ -33,4 +33,4 @@ tests.o: tests.c typesAndDecs.h capsule.h assertion.h tests.h
 #end of implicit rules
 
 clean:
-	rm -f *.o
+	rm -f *.o test
