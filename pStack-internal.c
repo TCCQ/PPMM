@@ -93,7 +93,7 @@ void ppaInternal(void* output, const int size) {
  */
 Capsule pCntInternal(void) {
      int howMuchToCopy = cntHolderDirty.size;
-     byte* input = (byte*)PMAddr(cntHolderDirty);
+     byte* input = (byte*)PMAddr(myCntHolder);
      byte* output = (byte*) PMAddr(pStackDirty);
      while (howMuchToCopy--) {
 	  *(output++) = *(input++);
@@ -101,6 +101,10 @@ Capsule pCntInternal(void) {
      pStackDirty.offset += cntHolderDirty.size;
      pStackDirty.size += cntHolderDirty.size;
      //now the stack has all the stuff, with the funcPtr at the top
+
+     cntHolderDirty.offset -= cntHolderDirty.size;
+     cntHolderDirty.size = 0;
+     //reset the holder
      funcPtr_t continuation;
      pPopArg(continuation);
      //dirty stack is set as it should be for user code
@@ -115,12 +119,12 @@ Capsule pCntInternal(void) {
  */
 Capsule pCallInternal(void) {
      int copy = cntHolderDirty.size;
-     byte* input = (byte*)PMAddr(cntHolderDirty);
+     byte* input = (byte*)PMAddr(myCntHolder);
      byte* output = (byte*)PMAddr(pStackDirty);
      while (copy--) {
 	  *(output++) = *(input++);
      }
-     input = (byte*)PMAddr(callHolderDirty);
+     input = (byte*)PMAddr(myCalleeHolder);
      copy = callHolderDirty.size;
      while (copy--) {
 	  *(output++) = *(input++);
@@ -128,6 +132,13 @@ Capsule pCallInternal(void) {
      pStackDirty.offset += cntHolderDirty.size + callHolderDirty.size;
      pStackDirty.size += cntHolderDirty.size + callHolderDirty.size;
 
+     cntHolderDirty.offset -= cntHolderDirty.size;
+     cntHolderDirty.size = 0;
+     callHolderDirty.offset -= callHolderDirty.size;
+     callHolderDirty.size = 0;
+     
+     //reset the holders
+     
      funcPtr_t cnt;
      pPopArg(cnt);
 
@@ -136,13 +147,44 @@ Capsule pCallInternal(void) {
 
 /* 
  * The stack pointer should be just above the rstPtr of the caller,
- * and the args for the cnt should be just below that. pop and go
+ * and the args for the cnt should be just below that. pop and go. The
+ * return value, if there is one, is in the cntHolder
  */
 Capsule pRetInternal(void) {
      funcPtr_t next;
      pPopArg(next);
+     
+     pPushCalleeArg(next);
+     
+     //store pointer in the callee holder
+     //the return argument is in the cnt holder, now put the next
+     //capsule on top of it (retCnt), and move both it and the arg to
+     //the stack
+     
+     pcnt(&pRetCntInternal);
+     /* 
+      * THIS RELIES ON THE FACT THAT PCNT DOES *NOT* CLEAR THE CALL HOLDER
+      */
+}
 
-     return makeCapsule(next); //does overhead
+/* 
+ * confusing name. this is the second half of returning a value. we
+ * need to mix some data around and it requires a second cap boundary
+ */
+Capsule pRetCntInternal(void) {
+     //now the return arg is on the stack and the return funcPtr_t is
+     //in the call holder
+     funcPtr_t next;
+     byte* input = (byte*)PMAddr(myCalleeHolder);
+     byte* output = (byte*) &next;
+     for (int i = 0; i < sizeof(next); i++) {
+	  *(output++) = *(input++);
+     }
+
+     callHolderDirty.offset -= callHolderDirty.size;
+     callHolderDirty.size = 0;
+     //empty call holder
+     pcnt(next);
 }
 
 

@@ -45,7 +45,7 @@ Capsule pCntInternal(void); //perform a continuation
 Capsule pCallInternal(void); //perform a pCall
 
 Capsule pRetInternal(void); //perform a pReturn
-
+Capsule pRetCntInternal(void); //more returning
 
 /*
  * manual override for pCnt, takes capsule instead of funcPtr, for

@@ -181,14 +181,18 @@ void pmemPartition(void) {
       * NUM_PROC array of pointers to byte array pStack, see types
       */
      cursor.size = PSTACK_HOLDING_SIZE * NUM_PROC;
+     unsigned int holderOffset = cursor.offset;
      cursor.offset += 2 * cursor.size;
      //both holder's real size
      cursor.size = PSTACK_STACK_SIZE * NUM_PROC;
      //real stacks
-
+     unsigned int stackOffset = cursor.offset;
+     cursor.offset += cursor.size;
+     
      cursor.size = sizeof(PMem) * NUM_PROC;
      extern PMem continuationHolders;
      continuationHolders = cursor;
+     
      cursor.offset += cursor.size;
      extern PMem calleeHolders;
      calleeHolders = cursor;
@@ -196,6 +200,22 @@ void pmemPartition(void) {
      extern PMem pStacks;
      pStacks = cursor;
      cursor.offset += cursor.size;
+
+     //do setup here because it is static
+     for (int p = 0; p < NUM_PROC; p++) {
+	  PMem* cntHolder = (PMem*)PMAddr(continuationHolders) + p;
+	  PMem* callHolder = (PMem*)PMAddr(calleeHolders) + p;
+	  PMem* pstack = (PMem*)PMAddr(pStacks) + p;
+	  //can reference the pmems for this process, makes more
+	  //readable
+
+	  cntHolder->offset = holderOffset + p * PSTACK_HOLDING_SIZE;
+	  cntHolder->size = 0;
+	  callHolder->offset = holderOffset + (p+NUM_PROC) * PSTACK_HOLDING_SIZE;
+	  callHolder->size = 0;
+	  pstack->offset = stackOffset + p * PSTACK_STACK_SIZE;
+	  pstack->size = 0;
+     }
      
      /*
       * procMap.h

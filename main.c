@@ -140,10 +140,21 @@ int main(int argc, char** argv) {
 	   */
 	  trampolineCapsule();
      } else if (testing) {
-	  Capsule test = makeCapsule(&testMain);
+	  /* 
+	   * it is NOT safe to use makeCapsule until a valid capsule
+	   * is already installed and corresponds to the work being
+	   * done. the first MUST be done by hand
+	   */
+	  Capsule test;
+	  test.rstPtr = &testMain;
 	  test.forkSide = 0;
+	  test.expectedOwner = hard;
 	  test.joinLoc = 0;
+	  test.pStackHeadClean = ((PMem*)PMAddr(pStacks))[hard];
+	  test.cntHolderClean = ((PMem*)PMAddr(continuationHolders))[hard];
+	  test.callHolderClean = ((PMem*)PMAddr(calleeHolders))[hard];
 	  test.whoAmI = hard;
+
 	  *curInst = test;
 	  trampolineCapsule();
      } else {

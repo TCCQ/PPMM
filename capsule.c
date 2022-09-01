@@ -16,6 +16,7 @@ Capsule makeCapsule(funcPtr_t instructions) {
      output.joinLoc = installed.joinLoc;
      output.forkSide = installed.forkSide;
      output.expectedOwner = installed.expectedOwner;
+     output.whoAmI = installed.whoAmI;
      
      /* 
       * make the clean version match the dirty version
@@ -24,8 +25,8 @@ Capsule makeCapsule(funcPtr_t instructions) {
       * soft whoAmI, see the capsule dec in capsule.h. 
       */
      output.pStackHeadClean = pStackDirty; 
-     output.cntHolderClean = myCntHolder;
-     output.callHolderClean = myCalleeHolder; 
+     output.cntHolderClean = cntHolderDirty;
+     output.callHolderClean = callHolderDirty; 
      
      return output;
 }
@@ -103,8 +104,10 @@ PMem installedSwap;
  */
 void trampolineCapsule(void) {
      Capsule next;
-     PMem pointerToCurrent;
      int hard = hardWhoAmI();
+     Capsule* installedOne = ( (Capsule*)PMAddr(installedSwap) ) + 2*hard;
+     Capsule* installedTwo = ( (Capsule*)PMAddr(installedSwap) ) + 2*hard + 1;
+     PMem* pointerToCurrent = (PMem*)PMAddr(currentlyInstalled) + hard;
      while (!( *((boolean*)PMAddr(trampolineQuit))) ) { 
 	  
 
@@ -130,23 +133,37 @@ void trampolineCapsule(void) {
 	   * a problem.
 	   */
 	  
-	  /*
-	   * This is the first part of the quick get code, but without the last deref
-	   */
-	  pointerToCurrent = ( (PMem*)PMAddr(currentlyInstalled) )[hard];
 
-	  funcPtr_t current = ( (Capsule*) PMAddr(pointerToCurrent) )->rstPtr;
-	  next = current(); //do the work and save the next capsule
+	  Capsule current = *(Capsule*) PMAddr(*pointerToCurrent);
 
-	  if (pointerToCurrent.offset == installedSwap.offset) { 
+	  pStackDirty = current.pStackHeadClean;
+	  cntHolderDirty = current.cntHolderClean;
+	  callHolderDirty = current.callHolderClean;
+	  
+	  next = (current.rstPtr)(); //do the work and save the next capsule
+
+	  if (pointerToCurrent->offset == installedSwap.offset + sizeof(Capsule)*2*hard) { 
 	       //the first is installed, copy into second
-	       *(((Capsule*) PMAddr(installedSwap) )+1) = next;
+	       *installedTwo = next;
+
+	       PMem pointerToSecond;
+	       pointerToSecond.size = sizeof(Capsule);
+	       pointerToSecond.offset = installedSwap.offset + (2*hard+1)*sizeof(Capsule);
 	       
-	       __atomic_store_n((Capsule**) PMAddr(pointerToCurrent), ((Capsule*) PMAddr(installedSwap))+1, __ATOMIC_SEQ_CST); 
+	       __atomic_store(pointerToCurrent,
+			      &pointerToSecond,
+			      __ATOMIC_SEQ_CST); 
 	  } else {
 	       //the second is installed, copy into first
-	       *((Capsule*) PMAddr(installedSwap) ) = next;
-	       __atomic_store_n((Capsule**) PMAddr(pointerToCurrent), (Capsule*) PMAddr(installedSwap), __ATOMIC_SEQ_CST); 
+	       *installedOne = next;
+
+	       PMem pointerToFirst;
+	       pointerToFirst.size = sizeof(Capsule);
+	       pointerToFirst.offset = installedSwap.offset + (2*hard)*sizeof(Capsule);
+	       
+	       __atomic_store(pointerToCurrent,
+			      &pointerToFirst,
+			      __ATOMIC_SEQ_CST); 
 	  }
      }
      //we can just cleanly exit here and drop back to main to do the cleanup

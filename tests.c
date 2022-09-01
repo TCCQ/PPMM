@@ -26,7 +26,7 @@ Capsule testCnt(void) {
      pPopArg(constant);
      printf("popped both args, they were, %i, %i\n", constant, variable);
      pPushCntArg(32);
-     printf("pushed under variable fro after the call: 32\n");
+     printf("pushed under variable for after the call: 32\n");
      pPushCalleeArg(50);
      printf("push called arg, 50\n");
      pcall(&testCall, &testPostCall);
@@ -49,7 +49,7 @@ Capsule testPostCall(void) {
 }
 
 Capsule testReturn(void) {
-     printf("reached the returning call\n");
+     printf("reached the returning call, going to return 63\n");
      pret(63);
 }
 
