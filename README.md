@@ -1,21 +1,21 @@
 # PPMM
-This is a userspace implementation of a work stealing parallel scheduler that is correct and efficient under fixed probability hard and soft faults. It is based on *The Parallel Persistent Memory Model* by Blelloc Et. Al. The initial work on this project was funded by the *Reed College Science Research Fellowship for Faculty-Student Collaborative Research*.
+This is a userspace implementation of a work stealing parallel scheduler that is correct and efficient under fixed probability hard and soft faults. It is based on *The Parallel Persistent Memory Model* by Blelloch Et. Al. The initial work on this project was funded by the *Reed College Science Research Fellowship for Faculty-Student Collaborative Research*.
 
 ## Terms
-Capsule: A block of code and the data required to execute it. \
-Thread: A series of consecutive capsules that should be executed in order. \
-Job: A representation of a thread in the scheduler. \
-Fork: A thread splits into two child threads. \
-Join: A thread synchronizes with it's sibling from the fork that created it. When both siblings arrive, the continuation of the forking thread is run. This effectively destroys the joining child thread. \
-Process: A computation unit capable of executing code independently of all other processes. There are a fixed maximum number of processes for a given instance of the scheduler. Each process faults independently of the others. \
-Ephemeral Memory: Memory accessible only by the process that owns it. It is lost on fault. \
-Persistent Memory: Memory which is accessible to every process. It preserves its state on fault. 
-Soft Fault: The process faulting restarts it's current capsule. Its ephemeral memory is in an undefined state. \
-Hard Fault: The process faulting dies and never resurrects. Its ephemeral memory is lost. \
-Theft: When a process steals work that has not been started from another process's scheduler. \
-Grave Robbing: When a process steals work that has been started by a process that has hard faulted. \
-Hard Who Am I: The index of the process that is performing this call. \
-Soft Who Am I: The index of the process that the work being performed is associated with. Associations are set at scheduler to user code boundaries and are preserved under grave robbing.
+**Capsule**: A block of code and the data required to execute it. \
+**Thread**: A series of consecutive capsules that should be executed in order. \
+**Job**: A representation of a thread in the scheduler. \
+**Fork**: A thread splits into two child threads. \
+**Join**: A thread synchronizes with it's sibling from the fork that created it. When both siblings arrive, the continuation of the forking thread is run. This effectively destroys the joining child thread. \
+**Process**: A computation unit capable of executing code independently of all other processes. There are a fixed maximum number of processes for a given instance of the scheduler. Each process faults independently of the others. \
+**Ephemeral Memory**: Memory accessible only by the process that owns it. It is lost on fault. \
+**Persistent Memory**: Memory which is accessible to every process. It preserves its state on fault. 
+**Soft Fault**: The process faulting restarts it's current capsule. Its ephemeral memory is in an undefined state. \
+**Hard Fault**: The process faulting dies and never resurrects. Its ephemeral memory is lost. \
+**Theft**: When a process steals work that has not been started from another process's scheduler. \
+**Grave Robbing**: When a process steals work that has been started by a process that has hard faulted. \
+**Hard Who Am I**: The index of the process that is performing this call. \
+**Soft Who Am I**: The index of the process that the work being performed is associated with. Associations are set at scheduler to user code boundaries and are preserved under grave robbing.
 
 ## Reading this document
 "The paper" will refer to *The Parallel Persistent Memory Model* unless otherwise specified. Capsules are assumed to be Idempotent, and when in relevant locations, atomically idempotent, exceptions will be noted. See the paper for details on what that entails.
