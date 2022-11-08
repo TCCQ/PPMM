@@ -9,7 +9,7 @@ This is a userspace implementation of a work stealing parallel scheduler that is
 **Join**: A thread synchronizes with it's sibling from the fork that created it. When both siblings arrive, the continuation of the forking thread is run. This effectively destroys the joining child thread. \
 **Process**: A computation unit capable of executing code independently of all other processes. There are a fixed maximum number of processes for a given instance of the scheduler. Each process faults independently of the others. \
 **Ephemeral Memory**: Memory accessible only by the process that owns it. It is lost on fault. \
-**Persistent Memory**: Memory which is accessible to every process. It preserves its state on fault. 
+**Persistent Memory**: Memory which is accessible to every process. It preserves its state on fault. \
 **Soft Fault**: The process faulting restarts it's current capsule. Its ephemeral memory is in an undefined state. \
 **Hard Fault**: The process faulting dies and never resurrects. Its ephemeral memory is lost. \
 **Theft**: When a process steals work that has not been started from another process's scheduler. \
